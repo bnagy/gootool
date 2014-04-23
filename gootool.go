@@ -13,11 +13,7 @@ import (
 	"path"
 )
 
-// https://developer.apple.com/library/mac/documentation/DeveloperTools/Conceptual/MachORuntime/Reference/reference.html#//apple_ref/doc/uid/20001298-BAJFFCGF
-// N_SECT (0xe)—The symbol is defined in the section number given in n_sect.
-// ( if this bit is set in the type byte, it means the n_value will be an address )
 const N_SECT = uint8(0x0e)
-const REFERENCED_DYNAMICALLY = uint16(0x0010)
 
 var outbuf = new(bytes.Buffer) // This will go away once we convert to graphy stuff
 
@@ -143,7 +139,7 @@ func symboliseBBLs(insn cs.Instruction, sdb *symlist.SymList) error {
 			if _, exists := sdb.At(uint(imm)); !exists {
 				sdb.Add(
 					macho.Symbol{
-						Name:  fmt.Sprintf("_loc 0x%x", imm),
+						Name:  fmt.Sprintf("loc_0x%x", imm),
 						Type:  N_SECT,
 						Sect:  uint8(1),
 						Desc:  uint16(0),
@@ -183,7 +179,7 @@ func dumpBlocks(insn cs.Instruction, sdb *symlist.SymList) error {
 
 		fmt.Print(outbuf.String())
 		if _, exists := sdb.At(insn.Address + insn.Size); !exists && insn.Id != cs.X86_INS_CALL {
-			fmt.Printf("\n_loc 0x%x:\n", insn.Address+insn.Size)
+			fmt.Printf("\nloc_0x%x:\n", insn.Address+insn.Size)
 		}
 		return nil
 
@@ -199,20 +195,6 @@ func dumpBlocks(insn cs.Instruction, sdb *symlist.SymList) error {
 	}
 	return nil
 
-}
-
-func dumpSymtab(st *macho.Symtab) {
-	for _, sym := range st.Syms {
-		fmt.Printf("%#v\n", sym)
-	}
-}
-
-func dumpDysymtab(st *macho.Dysymtab) {
-	// TODO: Work out how to get the stubs for external symbols, right now
-	// libSystem stuff isn't resolved
-	for _, sym := range st.IndirectSyms {
-		fmt.Printf("%#v\n", sym)
-	}
 }
 
 func main() {
@@ -233,7 +215,6 @@ func main() {
 	}
 
 	textSection := machOObj.Section("__text")
-
 	if textSection == nil {
 		log.Fatal("Text section not found.")
 	}
@@ -243,17 +224,9 @@ func main() {
 		log.Fatalf("Error parsing __text: %v", err)
 	}
 
-	symList := symlist.NewSymList()
-	for _, sym := range machOObj.Symtab.Syms {
-		// TODO: MACH-O SYMBOLS, HOW DO THEY WORK?
-		if sym.Sect == 1 && // text section
-			sym.Type&N_SECT > 0 && // N_SECT ( internal or external )
-			sym.Name != "" && // Don't know what these blank names are :/
-			sym.Desc != REFERENCED_DYNAMICALLY {
-
-			symList.Add(sym)
-
-		}
+	symList, err := symlist.NewSymList(machOObj)
+	if err != nil {
+		log.Fatalf("Unable to create SymList: %v", err)
 	}
 
 	engine, err := cs.New(
