@@ -1,8 +1,10 @@
 package symlist
 
 import (
+	"bytes"
 	"container/list"
 	"debug/macho"
+	"encoding/binary"
 	"fmt"
 )
 
@@ -15,6 +17,80 @@ const REFERENCED_DYNAMICALLY = uint16(0x0010)
 type SymList struct {
 	*list.List
 	db map[uint]macho.Symbol
+}
+
+func cstring(b []byte) string {
+	var i int
+	for i = 0; i < len(b) && b[i] != 0; i++ {
+	}
+	return string(b[0:i])
+}
+
+// Find the "Size of Stubs" value in the specified section. Have to do this by
+// parsings the raw load commands, because macho.Section does not expose any
+// of the reserved flags
+func getStubSize(stubSect *macho.Section, mo *macho.File) (uint32, error) {
+	// Copied and stripped down from the macho source. Error handling removed,
+	// because macho already did it.
+
+	bo := mo.ByteOrder
+	for _, l := range mo.Loads {
+
+		dat := l.Raw()
+		// Each load command begins with uint32 command and length.
+		cmd, siz := macho.LoadCmd(bo.Uint32(dat[0:4])), bo.Uint32(dat[4:8])
+		cmddat := dat[0:siz]
+
+		switch cmd {
+
+		default:
+			continue
+
+		case macho.LoadCmdSegment:
+			var seg32 macho.Segment32
+			b := bytes.NewBuffer(cmddat)
+			if err := binary.Read(b, bo, &seg32); err != nil {
+				return 0, err
+			}
+			if cstring(seg32.Name[0:]) != stubSect.Seg {
+				continue
+			}
+			for i := uint32(0); i < seg32.Nsect; i++ {
+				var sh32 macho.Section32
+				if err := binary.Read(b, bo, &sh32); err != nil {
+					return 0, err
+				}
+				if cstring(sh32.Name[0:]) != stubSect.Name {
+					continue
+				}
+				return sh32.Reserve2, nil
+			}
+
+		case macho.LoadCmdSegment64:
+			var seg64 macho.Segment64
+			b := bytes.NewBuffer(cmddat)
+			if err := binary.Read(b, bo, &seg64); err != nil {
+				return 0, err
+			}
+			if cstring(seg64.Name[0:]) != stubSect.Seg {
+				continue
+			}
+			for i := uint32(0); i < seg64.Nsect; i++ {
+				var sh64 macho.Section64
+				if err := binary.Read(b, bo, &sh64); err != nil {
+					return 0, err
+				}
+				if cstring(sh64.Name[0:]) != stubSect.Name {
+					continue
+				}
+				return sh64.Reserve2, nil
+			}
+
+		}
+	}
+
+	return 0, fmt.Errorf("Failed to find specified section.")
+
 }
 
 // Make a ghetto symbol "DB" and fill the linked list
@@ -86,7 +162,12 @@ func NewSymList(mo *macho.File) (*SymList, error) {
 	if stubs == nil {
 		return sl, fmt.Errorf("Symbol stubs not found, dynamic symbols not marked.")
 	}
+
 	stubBase := stubs.Addr
+	stubSize, err := getStubSize(stubs, mo) // size of each stub
+	if err != nil {
+		return sl, fmt.Errorf("Symbol stubs couldn't be parsed, dynamic symbols not marked.")
+	}
 
 	lsp := mo.Section("__la_symbol_ptr")
 
@@ -102,14 +183,14 @@ func NewSymList(mo *macho.File) (*SymList, error) {
 		// The Go IndirectSyms slice is composed of indicies into the real
 		// Symtab. The first clump are ( I hope ) the lazy symbols for the
 		// text section, followed by the got, which I don't mark up, yet.
-		if _, exists := sl.At(uint(i*6) + uint(stubBase)); !exists {
+		if _, exists := sl.At(uint(uint32(i)*stubSize) + uint(stubBase)); !exists {
 			sl.Add(
 				macho.Symbol{
 					Name:  fmt.Sprintf("STUB%s", mo.Symtab.Syms[dsIdx].Name),
 					Type:  N_SECT,
 					Sect:  uint8(1),
 					Desc:  uint16(0),
-					Value: uint64(i)*6 + stubBase,
+					Value: uint64(uint32(i)*stubSize) + stubBase,
 				},
 			)
 		}
