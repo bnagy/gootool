@@ -73,6 +73,11 @@ func NewSymList(mo *macho.File) (*SymList, error) {
 		return &SymList{}, fmt.Errorf("Text section not found.")
 	}
 
+	if len(mo.Dysymtab.IndirectSyms) == 0 {
+		// No dynamic symbols, nothing more to do.
+		return sl, nil
+	}
+
 	// TODO: Other possible names? I've only looked at a few binaries...
 	stubs := mo.Section("__stubs")
 	if stubs == nil {

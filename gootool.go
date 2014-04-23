@@ -56,7 +56,7 @@ func dumpResolvedImmediate(buf *bytes.Buffer, insn cs.Instruction, sym macho.Sym
 func dumpUnresolvedImmediate(buf *bytes.Buffer, insn cs.Instruction) {
 	fmt.Fprintf(
 		buf,
-		"=>0x%x: %-24.24s %-12.12s%s [ ??? ]\n",
+		"0x%x: %-24.24s %-12.12s%s [ ??? ]\n",
 		insn.Address,
 		hex.EncodeToString(insn.Bytes),
 		insn.Mnemonic,
@@ -92,11 +92,6 @@ disasm:
 			cursor+base,   // starting address
 			0,             // insns to disassemble, 0 for all
 		)
-
-		// if err != nil {
-		// 	//log.Fatalf("Disassembly error: %v", err)
-		// 	panic("Disassembly error")
-		// }
 
 		for _, insn := range insns {
 			cursor = uint64(insn.Address) - base
@@ -178,6 +173,9 @@ func dumpBlocks(insn cs.Instruction, sdb *symlist.SymList) error {
 		}
 
 		fmt.Print(outbuf.String())
+		// if the NEXT instruction exists in the symbol DB, and this is any
+		// jmp, this is the end of a basic block, and we mark up the head of
+		// the next one. call instructions don't end a basic block node
 		if _, exists := sdb.At(insn.Address + insn.Size); !exists && insn.Id != cs.X86_INS_CALL {
 			fmt.Printf("\nloc_0x%x:\n", insn.Address+insn.Size)
 		}
@@ -188,11 +186,11 @@ func dumpBlocks(insn cs.Instruction, sdb *symlist.SymList) error {
 	// fallthrough
 	dumpInsn(outbuf, insn)
 	fmt.Print(outbuf.String())
-	if _, exists := sdb.At(insn.Address + insn.Size); insn.Id != cs.X86_INS_RET && exists {
-		// We're NOT a jmp or call, but there's a symbol for the next
-		// instruction, so this is the end of an 'unterminated' BB.
-		fmt.Printf("\t|\n\tV\n")
-	}
+	// if _, exists := sdb.At(insn.Address + insn.Size); insn.Id != cs.X86_INS_RET && exists {
+	// 	// We're NOT a jmp or call, but there's a symbol for the next
+	// 	// instruction, so this is the end of an 'unterminated' BB.
+	// 	fmt.Printf("\t|\n\tV\n")
+	// }
 	return nil
 
 }
