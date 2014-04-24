@@ -14,9 +14,15 @@ import (
 const N_SECT = uint8(0x0e)
 const REFERENCED_DYNAMICALLY = uint16(0x0010)
 
+type SymEntry struct {
+	BBL  bool
+	Stub bool
+	macho.Symbol
+}
+
 type SymList struct {
 	*list.List
-	db map[uint]macho.Symbol
+	db map[uint]SymEntry
 }
 
 func cstring(b []byte) string {
@@ -93,14 +99,11 @@ func getStubSize(stubSect *macho.Section, mo *macho.File) (uint32, error) {
 
 }
 
-// Make a ghetto symbol "DB" and fill the linked list
-// Map is for O(1) address->string lookups, list is for sym+offset lookups
-func (sl *SymList) Add(sym macho.Symbol) {
-
+func (sl *SymList) doAdd(sym SymEntry) {
 	sl.db[uint(sym.Value)] = sym
 
 	for s := sl.Back(); s != nil; s = s.Prev() {
-		this := s.Value.(macho.Symbol)
+		this := s.Value.(SymEntry)
 		if sym.Value > this.Value {
 			sl.InsertAfter(sym, s)
 			return
@@ -110,28 +113,47 @@ func (sl *SymList) Add(sym macho.Symbol) {
 	sl.PushFront(sym)
 }
 
-func (sl *SymList) Near(addr uint64) (sym macho.Symbol, offset int, found bool) {
-	for s := sl.Back(); s != nil; s = s.Prev() {
-		this := s.Value.(macho.Symbol)
-		if addr >= this.Value {
-			return this, int(addr - this.Value), true
-		}
-	}
-	return macho.Symbol{}, 0, false
+// Make a ghetto symbol "DB" and fill the linked list
+// Map is for O(1) address->string lookups, list is for sym+offset lookups
+func (sl *SymList) AddFn(sym macho.Symbol) {
+	sl.doAdd(SymEntry{false, false, sym})
 }
 
-func (sl *SymList) At(addr uint) (sym macho.Symbol, found bool) {
+func (sl *SymList) AddBBL(sym macho.Symbol) {
+	sl.doAdd(SymEntry{true, false, sym})
+}
+
+func (sl *SymList) AddStub(sym macho.Symbol) {
+	sl.doAdd(SymEntry{false, true, sym})
+}
+
+func (sl *SymList) Near(addr uint) (sym SymEntry, offset int, found bool) {
+	for s := sl.Back(); s != nil; s = s.Prev() {
+		this := s.Value.(SymEntry)
+		if addr >= uint(this.Value) {
+			return this, int(addr - uint(this.Value)), true
+		}
+	}
+	return SymEntry{}, 0, false
+}
+
+func (sl *SymList) At(addr uint) (sym SymEntry, found bool) {
 	sym, ok := sl.db[addr]
 	return sym, ok
+}
+
+func (sl *SymList) Len() int {
+	return len(sl.db)
 }
 
 func NewSymList(mo *macho.File) (*SymList, error) {
 
 	sl := &SymList{
 		list.New(),
-		make(map[uint]macho.Symbol),
+		make(map[uint]SymEntry),
 	}
 
+	// These are the real function syms
 	for _, sym := range mo.Symtab.Syms {
 		// TODO: MACH-O SYMBOLS, HOW DO THEY WORK?
 		if sym.Sect == 1 && // text section
@@ -139,7 +161,7 @@ func NewSymList(mo *macho.File) (*SymList, error) {
 			sym.Name != "" && // Don't know what these blank names are :/
 			sym.Desc != REFERENCED_DYNAMICALLY { // Dynamic Symbols come next
 
-			sl.Add(sym)
+			sl.AddFn(sym)
 
 		}
 	}
@@ -184,7 +206,7 @@ func NewSymList(mo *macho.File) (*SymList, error) {
 		// Symtab. The first clump are ( I hope ) the lazy symbols for the
 		// text section, followed by the got, which I don't mark up, yet.
 		if _, exists := sl.At(uint(uint32(i)*stubSize) + uint(stubBase)); !exists {
-			sl.Add(
+			sl.AddStub(
 				macho.Symbol{
 					Name:  fmt.Sprintf("STUB%s", mo.Symtab.Syms[dsIdx].Name),
 					Type:  N_SECT,
