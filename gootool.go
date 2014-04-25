@@ -119,11 +119,10 @@ func dumpInsn(buf *bytes.Buffer, insn cs.Instruction) {
 	)
 }
 
-func disasm(engine *cs.Engine, code []byte, sdb *symlist.SymList) []cs.Instruction {
+func disasm(engine *cs.Engine, callback disasmCB, code []byte, sdb *symlist.SymList) {
 
 	base := sdb.Front().Value.(symlist.SymEntry).Value
 	cursor := uint64(0)
-	finalInsns := make([]cs.Instruction, 0)
 
 disasm:
 	for {
@@ -131,13 +130,16 @@ disasm:
 		if cursor >= uint64(len(code)) {
 			break disasm
 		}
+
 		insns, _ := engine.Disasm(
 			code[cursor:], // code buffer
 			cursor+base,   // starting address
 			0,             // insns to disassemble, 0 for all
 		)
+
 		for _, insn := range insns {
-			finalInsns = append(finalInsns, insn)
+			cursor = uint64(insn.Address) - base
+			callback(insn, sdb)
 		}
 
 		// If there's a symbol > the end cursor, start disassembling again
@@ -157,12 +159,9 @@ disasm:
 
 	} // end disasm loop
 
-	return finalInsns
-
 }
 
 func symboliseBBLs(insn cs.Instruction, sdb *symlist.SymList) error {
-
 	if isAnyImm(insn) {
 		// Add a BBL head symbol for the target of any jmp or call with an
 		// immediate operand
@@ -194,89 +193,6 @@ func symboliseBBLs(insn cs.Instruction, sdb *symlist.SymList) error {
 	}
 
 	return nil
-}
-
-func buildCFG(insns []cs.Instruction, sdb *symlist.SymList) map[uint]*cfg.BBL {
-
-	graph := make(map[uint]*cfg.BBL)
-	var thisBBL *cfg.BBL
-	gatheringTail := false
-
-	// First pass, just fill in the instructions and add the nodes to the map
-	for _, insn := range insns {
-
-		if _, ok := sdb.At(insn.Address); ok { // starting new BBL
-			sym, _, _ := sdb.Near(insn.Address)
-			thisBBL = cfg.NewBBL()
-			thisBBL.Symbol = sym
-			graph[insn.Address] = thisBBL
-			gatheringTail = false
-		}
-
-		// Suppress nop stuff after a ret insn
-		if insn.Id == cs.X86_INS_RET {
-			gatheringTail = true
-			thisBBL.Insns = append(thisBBL.Insns, insn)
-			continue
-		}
-
-		if insn.Id == cs.X86_INS_NOP && gatheringTail {
-			thisBBL.Tail = append(thisBBL.Tail, insn)
-		} else {
-			gatheringTail = false
-			thisBBL.Insns = append(thisBBL.Insns, insn)
-		}
-
-	}
-
-	// Second pass - link the Nodes
-	for _, bbl := range graph {
-
-		lastInsn := bbl.Insns[len(bbl.Insns)-1]
-
-		// Conditional jmp. Add true / false edge
-		if isBranchImm(lastInsn) {
-
-			imm := uint(lastInsn.X86.Operands[0].Imm)
-
-			bbl.TrueEdge = graph[imm]
-
-			if len(bbl.Tail) > 0 {
-				tail := bbl.Tail[len(bbl.Tail)-1]
-				fallTo := tail.Address + tail.Size
-				bbl.FalseEdge = graph[fallTo]
-			} else {
-				fallTo := lastInsn.Address + lastInsn.Size
-				bbl.FalseEdge = graph[fallTo]
-			}
-
-			continue
-
-		}
-
-		// Unconditional jmp. Add single edge to that Imm.
-		if isUncondImm(lastInsn) {
-			imm := uint(lastInsn.X86.Operands[0].Imm)
-			bbl.Edge = graph[imm]
-			continue
-		}
-
-		// RET - No exit edges from this bbl
-		if lastInsn.Id == cs.X86_INS_RET {
-			continue
-		}
-
-		// Everything else - add a fallthrough edge to the next BBL
-		if len(bbl.Tail) > 0 {
-			tail := bbl.Tail[len(bbl.Tail)-1]
-			fallTo := tail.Address + tail.Size
-			bbl.Edge = graph[fallTo]
-		} else {
-			fallTo := lastInsn.Address + lastInsn.Size
-			bbl.Edge = graph[fallTo]
-		}
-	}
-	return graph
 }
 
 func dumpBlocks(insn cs.Instruction, sdb *symlist.SymList) error {
@@ -361,15 +277,16 @@ func main() {
 
 		defer engine.Close()
 		engine.SetOption(cs.CS_OPT_DETAIL, cs.CS_OPT_ON)
-		insns := disasm(&engine, textBytes, sdb)
+		log.Println("Symbolizing...")
 
-		for _, insn := range insns {
-			symboliseBBLs(insn, sdb)
-		}
+		disasm(&engine, symboliseBBLs, textBytes, sdb)
 
-		graph := buildCFG(insns, sdb)
+		log.Println("Building graph...")
+		g := cfg.NewCFG()
+		disasm(&engine, g.BuildNodes, textBytes, sdb)
+		g.LinkNodes()
 
-		for _, bbl := range graph {
+		for _, bbl := range g.Graph {
 			var te, fe, ae uint64
 			if bbl.TrueEdge != nil {
 				te = bbl.TrueEdge.Symbol.Value
