@@ -61,10 +61,17 @@ BUGS
 This is definitely going to fail spectacularly on any kind of obfuscated binary. Also, Go's macho parser doesn't seem to recognise some magic values, so some binaries just won't parse at all.
 
 - dead code detection at the end of blocks is pretty crappy
+- Doesn't work on Fat binaries, only native Mach-O
+- Unlikely to work on 32 bit, don't have dinohardware; don't care.
 
 Contributing
 =======
 
-As if.
+Yes. Please to writing rest of web bigdata interface for clouds. Thx.
+
+License
+=======
+
+None. BSD, whatever. This is a toy not a tool.
 
 
