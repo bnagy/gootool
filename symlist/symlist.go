@@ -13,6 +13,8 @@ import (
 // ( if this bit is set in the type byte, it means the n_value will be an address )
 const N_SECT = uint8(0x0e)
 const REFERENCED_DYNAMICALLY = uint16(0x0010)
+const S_SYMBOL_STUBS = uint32(0x08)
+const S_LAZY_SYMBOL_POINTERS = uint32(0x07)
 
 type SymEntry struct {
 	BBL  bool
@@ -33,7 +35,7 @@ func cstring(b []byte) string {
 }
 
 // Find the "Size of Stubs" value in the specified section. Have to do this by
-// parsings the raw load commands, because macho.Section does not expose any
+// parsing the raw load commands, because macho.Section does not expose any
 // of the reserved flags
 func getStubSize(stubSect *macho.Section, mo *macho.File) (uint32, error) {
 	// Copied and stripped down from the macho source. Error handling removed,
@@ -176,13 +178,19 @@ func NewSymList(mo *macho.File) (*SymList, error) {
 		return sl, nil
 	}
 
-	// TODO: Other possible names? I've only looked at a few binaries...
-	stubs := mo.Section("__stubs")
-	if stubs == nil {
-		stubs = mo.Section("__symbol_stub")
+	// Find the first section with the S_SYMBOL_STUBS flag set, since they
+	// seem to have all kinds of names ( __stubs, __symbol_stub,
+	// __symbol_stub1...)
+	// TODO: Could there be more than one stub section? :/
+	var stubs *macho.Section
+	for _, sec := range mo.Sections {
+		if sec.Flags&S_SYMBOL_STUBS == S_SYMBOL_STUBS {
+			stubs = sec
+			break
+		}
 	}
 	if stubs == nil {
-		return sl, fmt.Errorf("Symbol stubs not found, dynamic symbols not marked.")
+		return sl, fmt.Errorf("Symbol stubs couldn't be parsed, dynamic symbols not marked.")
 	}
 
 	stubBase := stubs.Addr
@@ -191,7 +199,16 @@ func NewSymList(mo *macho.File) (*SymList, error) {
 		return sl, fmt.Errorf("Symbol stubs couldn't be parsed, dynamic symbols not marked.")
 	}
 
-	lsp := mo.Section("__la_symbol_ptr")
+	var lsp *macho.Section
+	for _, sec := range mo.Sections {
+		if sec.Flags&S_LAZY_SYMBOL_POINTERS == S_LAZY_SYMBOL_POINTERS {
+			lsp = sec
+			break
+		}
+	}
+	if lsp == nil {
+		return sl, fmt.Errorf("Symbol stubs couldn't be parsed, dynamic symbols not marked.")
+	}
 
 	for i, dsIdx := range mo.Dysymtab.IndirectSyms {
 
