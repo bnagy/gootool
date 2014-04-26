@@ -177,6 +177,8 @@ func symboliseBBLs(insn cs.Instruction, sdb *symlist.SymList) error {
 				},
 			)
 		}
+		// For any kind of JMP ( but not call ), add a symbol for the next
+		// instruction, since it needs to become a BBL head
 		if isJmpImm(insn) {
 			if _, exists := sdb.At(insn.Address + insn.Size); !exists {
 				sdb.AddBBL(
@@ -277,16 +279,30 @@ func main() {
 
 		defer engine.Close()
 		engine.SetOption(cs.CS_OPT_DETAIL, cs.CS_OPT_ON)
-		log.Println("Symbolizing...")
 
+		log.Println("Symbolizing...")
 		disasm(&engine, symboliseBBLs, textBytes, sdb)
 
 		log.Println("Building graph...")
 		g := cfg.NewCFG()
 		disasm(&engine, g.BuildNodes, textBytes, sdb)
+
+		log.Println("Linking graph nodes...")
 		g.LinkNodes()
 
-		for _, bbl := range g.Graph {
+		for e := sdb.Front(); e != nil; e = e.Next() {
+
+			sym := e.Value.(symlist.SymEntry)
+			if sym.Stub {
+				continue
+			}
+
+			bbl, ok := g.Graph[uint(sym.Value)]
+			if !ok {
+				log.Printf("Missing node for sym %v %v", sym.Name, sym.Value)
+				continue
+			}
+
 			var te, fe, ae uint64
 			if bbl.TrueEdge != nil {
 				te = bbl.TrueEdge.Symbol.Value
@@ -297,7 +313,8 @@ func main() {
 			if bbl.Edge != nil {
 				ae = bbl.Edge.Symbol.Value
 			}
-			fmt.Printf("\n%v Len: %v Tail: %v Edges: T:0x%x F:0x%x A:0x%x\n",
+
+			fmt.Printf("%v Len: %v Tail: %v Edges: T:0x%x F:0x%x A:0x%x",
 				bbl.Symbol.Name,
 				len(bbl.Insns),
 				len(bbl.Tail),
@@ -305,12 +322,21 @@ func main() {
 				fe,
 				ae,
 			)
-			for _, insn := range bbl.Insns {
-				dumpBlocks(insn, sdb)
+
+			// This is the part where I miss Ruby ;)
+			if len(bbl.CallEdges) > 0 {
+				fmt.Printf(" Calls ==> [")
+				for addr := range bbl.CallEdges {
+					sym, _ := sdb.At(addr)
+					fmt.Printf(" %v ", sym.Name)
+				}
+				fmt.Print("]")
 			}
-			for _, insn := range bbl.Tail {
-				dumpBlocks(insn, sdb)
+			if te+fe+ae == 0 { // no edges
+				fmt.Print(" [terminal]")
 			}
+			fmt.Print("\n")
+
 		}
 	}
 

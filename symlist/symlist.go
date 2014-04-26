@@ -102,6 +102,11 @@ func getStubSize(stubSect *macho.Section, mo *macho.File) (uint32, error) {
 }
 
 func (sl *SymList) doAdd(sym SymEntry) {
+
+	if _, exists := sl.db[uint(sym.Value)]; exists {
+		return
+	}
+
 	sl.db[uint(sym.Value)] = sym
 
 	for s := sl.Back(); s != nil; s = s.Prev() {

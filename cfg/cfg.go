@@ -3,6 +3,7 @@ package cfg
 import (
 	cs "github.com/bnagy/gapstone"
 	"github.com/bnagy/gootool/symlist"
+	// "log"
 )
 
 func inGroup(insn cs.Instruction, grp uint) bool {
@@ -62,7 +63,7 @@ func isAnyImm(insn cs.Instruction) bool {
 // exits iff they end with ret
 type BBL struct {
 	Symbol    symlist.SymEntry // symbol for the head insn
-	CallEdges []*BBL           // calls to other funcs ( don't break blocks )
+	CallEdges map[uint]bool    // calls to other funcs ( don't break blocks )
 	TrueEdge  *BBL             // conditional jumps, taken
 	FalseEdge *BBL             // conditional jumps, fallthrough
 	Edge      *BBL             // jmp or fallthrough to a new BBL
@@ -72,7 +73,7 @@ type BBL struct {
 
 func NewBBL() *BBL {
 	return &BBL{
-		CallEdges: make([]*BBL, 0),
+		CallEdges: make(map[uint]bool),
 		Insns:     make([]cs.Instruction, 0),
 		Tail:      make([]cs.Instruction, 0),
 	}
@@ -124,6 +125,14 @@ func (cfg *CFG) LinkNodes() {
 
 	// Second pass - link the Nodes
 	for _, bbl := range cfg.Graph {
+
+		for _, insn := range bbl.Insns {
+			// CALL - add a call edge
+			if isCallImm(insn) {
+				imm := uint(insn.X86.Operands[0].Imm)
+				bbl.CallEdges[imm] = true
+			}
+		}
 
 		lastInsn := bbl.Insns[len(bbl.Insns)-1]
 
