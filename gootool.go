@@ -63,7 +63,7 @@ func isCallImm(insn cs.Instruction) bool {
 }
 
 // Any JMP or CALL to an immediate
-func isAnyImm(insn cs.Instruction) bool {
+func isJmpCallImm(insn cs.Instruction) bool {
 	if inGroup(insn, cs.X86_GRP_JUMP) || insn.Id == cs.X86_INS_CALL {
 		if insn.X86.Operands[0].Type == cs.X86_OP_IMM {
 			return true
@@ -162,11 +162,14 @@ disasm:
 }
 
 func symboliseBBLs(insn cs.Instruction, sdb *symlist.SymList) error {
-	if isAnyImm(insn) {
+	if isJmpCallImm(insn) {
 		// Add a BBL head symbol for the target of any jmp or call with an
 		// immediate operand
 		imm := uint64(insn.X86.Operands[0].Imm)
-		if _, exists := sdb.At(uint(imm)); !exists {
+		if _, exists := sdb.At(uint(imm)); !exists &&
+			imm > sdb.TextBase && // don't add BBL heads outside the text section
+			imm < sdb.TextBase+sdb.TextSize {
+
 			sdb.AddBBL(
 				macho.Symbol{
 					Name:  fmt.Sprintf("loc_0x%x", imm),
@@ -176,6 +179,7 @@ func symboliseBBLs(insn cs.Instruction, sdb *symlist.SymList) error {
 					Value: imm,
 				},
 			)
+
 		}
 		// For any kind of JMP ( but not call ), add a symbol for the next
 		// instruction, since it needs to become a BBL head
@@ -237,6 +241,37 @@ func dumpBlocks(insn cs.Instruction, sdb *symlist.SymList) error {
 	fmt.Print(outbuf.String())
 	return nil
 
+}
+
+func blatBBL(bbl cfg.BBL, sym symlist.SymEntry, sdb *symlist.SymList) {
+	te, fe, ae := bbl.Edges()
+
+	if sym.Func { // Function head
+		fmt.Printf("\n(0x%x): ", bbl.Symbol.Value)
+	}
+
+	fmt.Printf("%v Len: %v Tail: %v Edges: T:0x%x F:0x%x A:0x%x",
+		bbl.Symbol.Name,
+		len(bbl.Insns),
+		len(bbl.Tail),
+		te,
+		fe,
+		ae,
+	)
+
+	// This is the part where I miss Ruby ;)
+	if len(bbl.CallEdges) > 0 {
+		fmt.Printf(" Calls ==> [")
+		for addr := range bbl.CallEdges {
+			sym, _ := sdb.At(addr)
+			fmt.Printf(" %v ", sym.Name)
+		}
+		fmt.Print("]")
+	}
+	if te+fe+ae == 0 { // no edges
+		fmt.Print(" [terminal]")
+	}
+	fmt.Print("\n")
 }
 
 func main() {
@@ -303,41 +338,19 @@ func main() {
 				continue
 			}
 
-			var te, fe, ae uint64
-			if bbl.TrueEdge != nil {
-				te = bbl.TrueEdge.Symbol.Value
-			}
-			if bbl.FalseEdge != nil {
-				fe = bbl.FalseEdge.Symbol.Value
-			}
-			if bbl.Edge != nil {
-				ae = bbl.Edge.Symbol.Value
-			}
-
-			fmt.Printf("%v Len: %v Tail: %v Edges: T:0x%x F:0x%x A:0x%x",
-				bbl.Symbol.Name,
-				len(bbl.Insns),
-				len(bbl.Tail),
-				te,
-				fe,
-				ae,
-			)
-
-			// This is the part where I miss Ruby ;)
-			if len(bbl.CallEdges) > 0 {
-				fmt.Printf(" Calls ==> [")
-				for addr := range bbl.CallEdges {
-					sym, _ := sdb.At(addr)
-					fmt.Printf(" %v ", sym.Name)
-				}
-				fmt.Print("]")
-			}
-			if te+fe+ae == 0 { // no edges
-				fmt.Print(" [terminal]")
-			}
-			fmt.Print("\n")
+			blatBBL(*bbl, sym, sdb)
 
 		}
+
+		if m, ok := sdb.Name("_release_dotlock"); ok {
+			log.Printf("Crawling %s", m.Name)
+			results := make(chan cfg.BBL)
+			go g.CrawlFrom(m, sdb, results)
+			for rbbl := range results {
+				blatBBL(rbbl, rbbl.Symbol, sdb)
+			}
+		}
+
 	}
 
 }

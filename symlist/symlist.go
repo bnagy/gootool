@@ -19,12 +19,15 @@ const S_LAZY_SYMBOL_POINTERS = uint32(0x07)
 type SymEntry struct {
 	BBL  bool
 	Stub bool
+	Func bool
 	macho.Symbol
 }
 
 type SymList struct {
 	*list.List
-	db map[uint]SymEntry
+	db       map[uint]SymEntry
+	TextBase uint64
+	TextSize uint64
 }
 
 func cstring(b []byte) string {
@@ -123,15 +126,15 @@ func (sl *SymList) doAdd(sym SymEntry) {
 // Make a ghetto symbol "DB" and fill the linked list
 // Map is for O(1) address->string lookups, list is for sym+offset lookups
 func (sl *SymList) AddFn(sym macho.Symbol) {
-	sl.doAdd(SymEntry{false, false, sym})
+	sl.doAdd(SymEntry{false, false, true, sym})
 }
 
 func (sl *SymList) AddBBL(sym macho.Symbol) {
-	sl.doAdd(SymEntry{true, false, sym})
+	sl.doAdd(SymEntry{true, false, false, sym})
 }
 
 func (sl *SymList) AddStub(sym macho.Symbol) {
-	sl.doAdd(SymEntry{false, true, sym})
+	sl.doAdd(SymEntry{false, true, false, sym})
 }
 
 func (sl *SymList) Near(addr uint) (sym SymEntry, offset int, found bool) {
@@ -149,6 +152,16 @@ func (sl *SymList) At(addr uint) (sym SymEntry, found bool) {
 	return sym, ok
 }
 
+func (sl *SymList) Name(name string) (sym SymEntry, found bool) {
+	for s := sl.Back(); s != nil; s = s.Prev() {
+		this := s.Value.(SymEntry)
+		if this.Name == name {
+			return this, true
+		}
+	}
+	return SymEntry{}, false
+}
+
 func (sl *SymList) Len() int {
 	return len(sl.db)
 }
@@ -158,6 +171,8 @@ func NewSymList(mo *macho.File) (*SymList, error) {
 	sl := &SymList{
 		list.New(),
 		make(map[uint]SymEntry),
+		0,
+		0,
 	}
 
 	// These are the real function syms
@@ -177,6 +192,9 @@ func NewSymList(mo *macho.File) (*SymList, error) {
 	if textSection == nil {
 		return &SymList{}, fmt.Errorf("Text section not found.")
 	}
+
+	sl.TextBase = textSection.Addr
+	sl.TextSize = textSection.Size
 
 	if len(mo.Dysymtab.IndirectSyms) == 0 {
 		// No dynamic symbols, nothing more to do.

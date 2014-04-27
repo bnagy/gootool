@@ -4,6 +4,8 @@ import (
 	cs "github.com/bnagy/gapstone"
 	"github.com/bnagy/gootool/symlist"
 	// "log"
+	"sync"
+	"sync/atomic"
 )
 
 func inGroup(insn cs.Instruction, grp uint) bool {
@@ -69,19 +71,38 @@ type BBL struct {
 	Edge      *BBL             // jmp or fallthrough to a new BBL
 	Insns     []cs.Instruction
 	Tail      []cs.Instruction // Dead code at the end of a block ( nops, junk after a ret etc)
+	CrawlTag  *uint32          // Needed by concurrent crawlers
+}
+
+// Doesn't distinguish between no edge ( nil ptr ) and an edge to address 0x0.
+// For cases where that's important you should check the values manually.
+func (bbl *BBL) Edges() (uint64, uint64, uint64) {
+	var te, fe, ae uint64
+	if bbl.TrueEdge != nil {
+		te = bbl.TrueEdge.Symbol.Value
+	}
+	if bbl.FalseEdge != nil {
+		fe = bbl.FalseEdge.Symbol.Value
+	}
+	if bbl.Edge != nil {
+		ae = bbl.Edge.Symbol.Value
+	}
+	return te, fe, ae
 }
 
 func NewBBL() *BBL {
+	tag := uint32(0)
 	return &BBL{
 		CallEdges: make(map[uint]bool),
 		Insns:     make([]cs.Instruction, 0),
 		Tail:      make([]cs.Instruction, 0),
+		CrawlTag:  &tag,
 	}
 }
 
 type CFG struct {
 	Graph         map[uint]*BBL
-	thisBBL       *BBL
+	thisBBL       *BBL // little state vars to make the building easier
 	gatheringTail bool
 }
 
@@ -91,6 +112,7 @@ func NewCFG() *CFG {
 	}
 }
 
+// Follows the type signature for a disasmCB in gootool.go
 func (cfg *CFG) BuildNodes(insn cs.Instruction, sdb *symlist.SymList) error {
 
 	// First pass, just fill in the instructions and add the nodes to the map
@@ -121,6 +143,8 @@ func (cfg *CFG) BuildNodes(insn cs.Instruction, sdb *symlist.SymList) error {
 
 }
 
+// Call this once the CFG has been constructed, to perform second+ pass
+// analysis and fixups etc.
 func (cfg *CFG) LinkNodes() {
 
 	// Second pass - link the Nodes
@@ -178,5 +202,80 @@ func (cfg *CFG) LinkNodes() {
 			bbl.Edge = cfg.Graph[fallTo]
 		}
 	}
+
+}
+
+func (g *CFG) Crawl(bbl BBL, tag uint32, sdb *symlist.SymList, results chan<- BBL, wg *sync.WaitGroup) {
+
+	for {
+
+		swapped := atomic.CompareAndSwapUint32(bbl.CrawlTag, tag, tag+1)
+		if !swapped {
+			// Someone beat us here, abort.
+			break
+		}
+
+		results <- bbl
+
+		te, fe, ae := bbl.Edges()
+		if te > 0 && fe > 0 {
+
+			// spawn a new worker for the true edge
+			if tbbl, exists := g.Graph[uint(te)]; exists {
+				wg.Add(1)
+				go g.Crawl(*tbbl, tag, sdb, results, wg)
+			}
+
+			// this worker follows the false edge
+			if fbbl, exists := g.Graph[uint(fe)]; exists {
+				bbl = *fbbl
+				continue
+			}
+
+			// .. unless the false edge was invalid, just die
+			break
+		}
+
+		if ae > 0 {
+			// follow the always edge, if it exists
+			if abbl, exists := g.Graph[uint(ae)]; exists {
+
+				// SPECIAL CASE - don't crawl always edges that fall through
+				// to a function head
+				if s, exists := sdb.At(uint(ae)); exists && s.Func {
+					break
+				}
+
+				bbl = *abbl
+				continue
+			}
+			break
+		}
+
+		// No more edges.
+		break
+	}
+
+	wg.Done()
+	return
+
+}
+
+func (g *CFG) CrawlFrom(sym symlist.SymEntry, sdb *symlist.SymList, results chan<- BBL) {
+
+	wg := &sync.WaitGroup{}
+	if bbl, exists := g.Graph[uint(sym.Value)]; exists {
+		// Crawlers will atomic.CompareAndSwapUint32 the tag they find in each
+		// node with the new tag. If no swap was done then the node has been
+		// visited, and that crawl routine will abort. This lets us spawn when
+		// we hit a branch and have one routine die if the paths reconverge
+		tag := *bbl.CrawlTag
+		wg.Add(1)
+		go g.Crawl(*bbl, tag, sdb, results, wg)
+		wg.Wait()
+	}
+
+	close(results)
+	return
 
 }
