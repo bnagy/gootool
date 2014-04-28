@@ -3,63 +3,11 @@ package cfg
 import (
 	cs "github.com/bnagy/gapstone"
 	"github.com/bnagy/gootool/symlist"
+	"github.com/bnagy/gootool/util"
 	// "log"
 	"sync"
 	"sync/atomic"
 )
-
-func inGroup(insn cs.Instruction, grp uint) bool {
-	for _, g := range insn.Groups {
-		if g == grp {
-			return true
-		}
-	}
-	return false
-}
-
-// Conditional JMP to an immediate
-func isBranchImm(insn cs.Instruction) bool {
-	if inGroup(insn, cs.X86_GRP_JUMP) && insn.Id != cs.X86_INS_JMP {
-		if insn.X86.Operands[0].Type == cs.X86_OP_IMM {
-			return true
-		}
-	}
-	return false
-}
-
-// Unconditional JMP to an immediate ( JMP / LONGJMP )
-func isUncondImm(insn cs.Instruction) bool {
-	if insn.Id == cs.X86_INS_JMP && insn.X86.Operands[0].Type == cs.X86_OP_IMM {
-		return true
-	}
-	return false
-}
-
-// Any JMP to an immediate
-func isJmpImm(insn cs.Instruction) bool {
-	if inGroup(insn, cs.X86_GRP_JUMP) && insn.X86.Operands[0].Type == cs.X86_OP_IMM {
-		return true
-	}
-	return false
-}
-
-// CALL of an immediate
-func isCallImm(insn cs.Instruction) bool {
-	if insn.Id == cs.X86_INS_CALL && insn.X86.Operands[0].Type == cs.X86_OP_IMM {
-		return true
-	}
-	return false
-}
-
-// Any JMP or CALL to an immediate
-func isAnyImm(insn cs.Instruction) bool {
-	if inGroup(insn, cs.X86_GRP_JUMP) || insn.Id == cs.X86_INS_CALL {
-		if insn.X86.Operands[0].Type == cs.X86_OP_IMM {
-			return true
-		}
-	}
-	return false
-}
 
 // Basic blocks are expected to have 1 Edge, 1 TrueEdge + 1 FalseEdge or no
 // exits iff they end with ret. CallEdges doesn't use *BBL because they can be
@@ -155,7 +103,7 @@ func (cfg *CFG) LinkNodes() {
 
 		for _, insn := range bbl.Insns {
 			// CALL - add a call edge
-			if isCallImm(insn) {
+			if util.IsCallImm(insn) {
 				imm := uint(insn.X86.Operands[0].Imm)
 				bbl.CallEdges[imm] = true
 			}
@@ -164,7 +112,7 @@ func (cfg *CFG) LinkNodes() {
 		lastInsn := bbl.Insns[len(bbl.Insns)-1]
 
 		// Conditional jmp. Add true / false edge
-		if isBranchImm(lastInsn) {
+		if util.IsBranchImm(lastInsn) {
 
 			imm := uint(lastInsn.X86.Operands[0].Imm)
 
@@ -184,7 +132,7 @@ func (cfg *CFG) LinkNodes() {
 		}
 
 		// Unconditional jmp. Add single edge to that Imm.
-		if isUncondImm(lastInsn) {
+		if util.IsUncondImm(lastInsn) {
 			imm := uint(lastInsn.X86.Operands[0].Imm)
 			bbl.Edge = cfg.Graph[imm]
 			continue
