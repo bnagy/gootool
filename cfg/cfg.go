@@ -1,51 +1,49 @@
 package cfg
 
 import (
+	"bytes"
+	"fmt"
 	cs "github.com/bnagy/gapstone"
 	"github.com/bnagy/gootool/symlist"
 	"github.com/bnagy/gootool/util"
-	// "log"
+	"log"
 	"sync"
 	"sync/atomic"
 )
+
+type EdgeType uint8
+
+const (
+	FalseEdge  EdgeType = 0
+	TrueEdge   EdgeType = 1
+	AlwaysEdge EdgeType = 2
+)
+
+type Edge struct {
+	Target *BBL
+	Type   EdgeType
+}
 
 // Basic blocks are expected to have 1 Edge, 1 TrueEdge + 1 FalseEdge or no
 // exits iff they end with ret. CallEdges doesn't use *BBL because they can be
 // stubs, for which no BBL exists
 type BBL struct {
-	Symbol    symlist.SymEntry // symbol for the head insn
-	CallEdges map[uint]bool    // calls to other funcs ( don't break blocks )
-	TrueEdge  *BBL             // conditional jumps, taken
-	FalseEdge *BBL             // conditional jumps, fallthrough
-	Edge      *BBL             // jmp or fallthrough to a new BBL
-	Insns     []cs.Instruction
-	Tail      []cs.Instruction // Dead code at the end of a block ( nops, junk after a ret etc)
-	CrawlTag  *uint32          // Needed by concurrent crawlers
-}
-
-// Doesn't distinguish between no edge ( nil ptr ) and an edge to address 0x0.
-// For cases where that's important you should check the values manually.
-func (bbl *BBL) Edges() (uint64, uint64, uint64) {
-	var te, fe, ae uint64
-	if bbl.TrueEdge != nil {
-		te = bbl.TrueEdge.Symbol.Value
-	}
-	if bbl.FalseEdge != nil {
-		fe = bbl.FalseEdge.Symbol.Value
-	}
-	if bbl.Edge != nil {
-		ae = bbl.Edge.Symbol.Value
-	}
-	return te, fe, ae
+	Symbol   symlist.SymEntry // symbol for the head insn
+	Calls    map[uint]bool    // calls to other funcs ( don't break blocks )
+	Edges    []Edge
+	Insns    []cs.Instruction
+	Tail     []cs.Instruction // Dead code at the end of a block ( nops, junk after a ret etc)
+	CrawlTag *uint32          // Needed by concurrent crawlers
 }
 
 func NewBBL() *BBL {
 	tag := uint32(0)
 	return &BBL{
-		CallEdges: make(map[uint]bool),
-		Insns:     make([]cs.Instruction, 0),
-		Tail:      make([]cs.Instruction, 0),
-		CrawlTag:  &tag,
+		Calls:    make(map[uint]bool),
+		Edges:    make([]Edge, 0),
+		Insns:    make([]cs.Instruction, 0),
+		Tail:     make([]cs.Instruction, 0),
+		CrawlTag: &tag,
 	}
 }
 
@@ -94,6 +92,23 @@ func (cfg *CFG) BuildNodes(insn cs.Instruction) error {
 
 }
 
+func (cfg *CFG) linkBBLToAddr(bbl *BBL, et EdgeType, dest uint) bool {
+
+	// No symbol, no link
+	if _, exists := cfg.sdb.At(dest); !exists {
+		return false
+	}
+
+	// No destination BBL, no link
+	if target, exists := cfg.Graph[dest]; exists {
+		bbl.Edges = append(bbl.Edges, Edge{Target: target, Type: et})
+		return true
+	}
+
+	return false
+
+}
+
 // Call this once the CFG has been constructed, to perform second+ pass
 // analysis and fixups etc.
 func (cfg *CFG) LinkNodes() {
@@ -102,10 +117,12 @@ func (cfg *CFG) LinkNodes() {
 	for _, bbl := range cfg.Graph {
 
 		for _, insn := range bbl.Insns {
-			// CALL - add a call edge
+			// CALL - add a call
 			if util.IsCallImm(insn) {
 				imm := uint(insn.X86.Operands[0].Imm)
-				bbl.CallEdges[imm] = true
+				if _, exists := cfg.sdb.At(imm); exists {
+					bbl.Calls[imm] = true
+				}
 			}
 		}
 
@@ -115,16 +132,15 @@ func (cfg *CFG) LinkNodes() {
 		if util.IsBranchImm(lastInsn) {
 
 			imm := uint(lastInsn.X86.Operands[0].Imm)
-
-			bbl.TrueEdge = cfg.Graph[imm]
+			cfg.linkBBLToAddr(bbl, TrueEdge, imm)
 
 			if len(bbl.Tail) > 0 {
 				tail := bbl.Tail[len(bbl.Tail)-1]
 				fallTo := tail.Address + tail.Size
-				bbl.FalseEdge = cfg.Graph[fallTo]
+				cfg.linkBBLToAddr(bbl, FalseEdge, fallTo)
 			} else {
 				fallTo := lastInsn.Address + lastInsn.Size
-				bbl.FalseEdge = cfg.Graph[fallTo]
+				cfg.linkBBLToAddr(bbl, FalseEdge, fallTo)
 			}
 
 			continue
@@ -134,7 +150,7 @@ func (cfg *CFG) LinkNodes() {
 		// Unconditional jmp. Add single edge to that Imm.
 		if util.IsUncondImm(lastInsn) {
 			imm := uint(lastInsn.X86.Operands[0].Imm)
-			bbl.Edge = cfg.Graph[imm]
+			cfg.linkBBLToAddr(bbl, AlwaysEdge, imm)
 			continue
 		}
 
@@ -147,68 +163,93 @@ func (cfg *CFG) LinkNodes() {
 		if len(bbl.Tail) > 0 {
 			tail := bbl.Tail[len(bbl.Tail)-1]
 			fallTo := tail.Address + tail.Size
-			bbl.Edge = cfg.Graph[fallTo]
+			cfg.linkBBLToAddr(bbl, AlwaysEdge, fallTo)
 		} else {
 			fallTo := lastInsn.Address + lastInsn.Size
-			bbl.Edge = cfg.Graph[fallTo]
+			cfg.linkBBLToAddr(bbl, AlwaysEdge, fallTo)
 		}
 	}
 
 }
 
+func (cfg *CFG) BlatBBL(bbl *BBL, buf *bytes.Buffer) {
+
+	// This is the part where I miss Ruby ;)
+
+	sym := bbl.Symbol
+	if sym.Func { // Function head
+		fmt.Fprintf(buf, "\n(0x%x): ", bbl.Symbol.Value)
+	}
+
+	fmt.Fprintf(buf, "%v Len: %v Tail: %v Edges: ",
+		bbl.Symbol.Name,
+		len(bbl.Insns),
+		len(bbl.Tail),
+	)
+
+	for _, e := range bbl.Edges {
+		switch e.Type {
+		case TrueEdge:
+			fmt.Fprintf(buf, " T: %s", e.Target.Symbol.Name)
+		case FalseEdge:
+			fmt.Fprintf(buf, " F: %s", e.Target.Symbol.Name)
+		case AlwaysEdge:
+			fmt.Fprintf(buf, " A: %s", e.Target.Symbol.Name)
+
+		}
+	}
+
+	if len(bbl.Calls) > 0 {
+		fmt.Fprintf(buf, " Calls ==> [")
+		for addr := range bbl.Calls {
+			sym, _ := cfg.sdb.At(addr)
+			fmt.Fprintf(buf, " %v ", sym.Name)
+		}
+		fmt.Fprintf(buf, "]")
+	}
+	if len(bbl.Edges) == 0 { // no edges
+		fmt.Fprintf(buf, " [terminal]")
+	}
+	fmt.Fprintf(buf, "\n")
+}
+
 func (g *CFG) Crawl(bbl BBL, tag uint32, results chan<- BBL, wg *sync.WaitGroup) {
 
+crawl:
 	for {
 
 		swapped := atomic.CompareAndSwapUint32(bbl.CrawlTag, tag, tag+1)
 		if !swapped {
-			// Someone beat us here, abort.
-			break
+			// Another crawler beat us here. Die.
+			wg.Done()
+			return
 		}
 
 		results <- bbl
 
-		te, fe, ae := bbl.Edges()
-		if te > 0 && fe > 0 {
-
-			// spawn a new worker for the true edge
-			if tbbl, exists := g.Graph[uint(te)]; exists {
-				wg.Add(1)
-				go g.Crawl(*tbbl, tag, results, wg)
+		switch len(bbl.Edges) {
+		case 0:
+			// No edges to crawl. Die.
+			wg.Done()
+			return
+		case 1:
+			// SPECIAL CASE - don't crawl always edges that fall through
+			// to a function head
+			if bbl.Edges[0].Target.Symbol.Func {
+				break crawl
 			}
-
-			// this worker follows the false edge
-			if fbbl, exists := g.Graph[uint(fe)]; exists {
-				bbl = *fbbl
-				continue
-			}
-
-			// .. unless the false edge was invalid, just die
-			break
+			bbl = *bbl.Edges[0].Target
+		case 2:
+			// Spin up another crawler to handle the second edge
+			wg.Add(1)
+			go g.Crawl(*bbl.Edges[1].Target, tag, results, wg)
+			// This crawler follows the first
+			bbl = *bbl.Edges[0].Target
+		default:
+			log.Panicf("Too many edges for BBL: %v", bbl)
 		}
 
-		if ae > 0 {
-			// follow the always edge, if it exists
-			if abbl, exists := g.Graph[uint(ae)]; exists {
-
-				// SPECIAL CASE - don't crawl always edges that fall through
-				// to a function head
-				if s, exists := g.sdb.At(uint(ae)); exists && s.Func {
-					break
-				}
-
-				bbl = *abbl
-				continue
-			}
-			break
-		}
-
-		// No more edges.
-		break
 	}
-
-	wg.Done()
-	return
 
 }
 

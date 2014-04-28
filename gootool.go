@@ -3,13 +3,12 @@ package main
 import (
 	"bytes"
 	"debug/macho"
-	"encoding/hex"
 	"flag"
 	"fmt"
 	cs "github.com/bnagy/gapstone"
 	"github.com/bnagy/gootool/cfg"
+	"github.com/bnagy/gootool/formatters"
 	"github.com/bnagy/gootool/symlist"
-	"github.com/bnagy/gootool/util"
 	"log"
 	"os"
 	"path"
@@ -17,55 +16,9 @@ import (
 
 const N_SECT = uint8(0x0e)
 
-var outbuf = new(bytes.Buffer) // This will go away once we convert to graphy stuff
+var outbuf = new(bytes.Buffer)
+
 type disasmCB func(insn cs.Instruction) error
-
-func dumpResolvedImmediate(buf *bytes.Buffer, insn cs.Instruction, sym symlist.SymEntry, off int) {
-	if off > 0 {
-		fmt.Fprintf(
-			buf,
-			"0x%x: %-24.24s %-12.12s%s+0x%x [ %s ]\n",
-			insn.Address,
-			hex.EncodeToString(insn.Bytes),
-			insn.Mnemonic,
-			sym.Name,
-			off,
-			insn.OpStr,
-		)
-	} else {
-		fmt.Fprintf(
-			buf,
-			"0x%x: %-24.24s %-12.12s%s [ %s ]\n",
-			insn.Address,
-			hex.EncodeToString(insn.Bytes),
-			insn.Mnemonic,
-			sym.Name,
-			insn.OpStr,
-		)
-	}
-}
-
-func dumpUnresolvedImmediate(buf *bytes.Buffer, insn cs.Instruction) {
-	fmt.Fprintf(
-		buf,
-		"0x%x: %-24.24s %-12.12s%s [ ??? ]\n",
-		insn.Address,
-		hex.EncodeToString(insn.Bytes),
-		insn.Mnemonic,
-		insn.OpStr,
-	)
-}
-
-func dumpInsn(buf *bytes.Buffer, insn cs.Instruction) {
-	fmt.Fprintf(
-		buf,
-		"0x%x: %-24.24s %-12.12s%s\n",
-		insn.Address,
-		hex.EncodeToString(insn.Bytes),
-		insn.Mnemonic,
-		insn.OpStr,
-	)
-}
 
 func disasm(engine *cs.Engine, callback disasmCB, code []byte, sdb *symlist.SymList) {
 
@@ -107,78 +60,6 @@ disasm:
 
 	} // end disasm loop
 
-}
-
-func dumpBlocks(insn cs.Instruction, sdb *symlist.SymList) error {
-
-	outbuf.Reset()
-
-	// Mark up symbols as ( hopefully ) function heads
-	if _, ok := sdb.At(insn.Address); ok {
-		// The Lookup names are usually nicer - eg you get
-		// main.validateSignature instead of _text
-		s, _, _ := sdb.Near(insn.Address)
-		fmt.Printf("\n%v:\n", s.Name)
-	}
-
-	// Try to symbolically resolve any jmp/call with an immediate operand
-	if util.IsJmpCallImm(insn) {
-
-		imm := uint(insn.X86.Operands[0].Imm)
-		if sym, off, found := sdb.Near(imm); found {
-			dumpResolvedImmediate(outbuf, insn, sym, off)
-		} else {
-			dumpUnresolvedImmediate(outbuf, insn)
-		}
-
-		fmt.Print(outbuf.String())
-		// if the NEXT instruction does not exist in the symbol DB, and this
-		// is any jmp, this is the end of a basic block, and we mark up the
-		// head of the next one. call instructions don't end a basic block
-		// node
-		if _, exists := sdb.At(insn.Address + insn.Size); !exists && insn.Id != cs.X86_INS_CALL {
-			fmt.Printf("\nloc_0x%x:\n", insn.Address+insn.Size)
-		}
-		return nil
-
-	}
-
-	// fallthrough
-	dumpInsn(outbuf, insn)
-	fmt.Print(outbuf.String())
-	return nil
-
-}
-
-func blatBBL(bbl cfg.BBL, sym symlist.SymEntry, sdb *symlist.SymList) {
-	te, fe, ae := bbl.Edges()
-
-	if sym.Func { // Function head
-		fmt.Printf("\n(0x%x): ", bbl.Symbol.Value)
-	}
-
-	fmt.Printf("%v Len: %v Tail: %v Edges: T:0x%x F:0x%x A:0x%x",
-		bbl.Symbol.Name,
-		len(bbl.Insns),
-		len(bbl.Tail),
-		te,
-		fe,
-		ae,
-	)
-
-	// This is the part where I miss Ruby ;)
-	if len(bbl.CallEdges) > 0 {
-		fmt.Printf(" Calls ==> [")
-		for addr := range bbl.CallEdges {
-			sym, _ := sdb.At(addr)
-			fmt.Printf(" %v ", sym.Name)
-		}
-		fmt.Print("]")
-	}
-	if te+fe+ae == 0 { // no edges
-		fmt.Print(" [terminal]")
-	}
-	fmt.Print("\n")
 }
 
 func main() {
@@ -245,25 +126,36 @@ func main() {
 				continue
 			}
 
-			blatBBL(*bbl, sym, sdb)
-
+			outbuf.Reset()
+			g.BlatBBL(bbl, outbuf)
+			fmt.Print(outbuf.String())
 		}
 
-		if m, ok := sdb.Name("_balancerest"); ok {
+		if m, ok := sdb.Name("_needfree"); ok {
 			log.Printf("Crawling %s", m.Name)
 			funcs := make(map[string]bool)
 			results := make(chan cfg.BBL)
 			go g.CrawlFrom(m, results)
 			for bbl := range results {
-				blatBBL(bbl, bbl.Symbol, sdb)
-				for addr := range bbl.CallEdges {
+
+				outbuf.Reset()
+				g.BlatBBL(&bbl, outbuf)
+				fmt.Print(outbuf.String())
+
+				for _, insn := range bbl.Insns {
+					outbuf.Reset()
+					formatters.DumpInsn(insn, sdb, outbuf)
+					fmt.Printf("\t%s\n", outbuf.String())
+				}
+
+				for addr := range bbl.Calls {
 					sym, ok := sdb.At(addr)
 					if ok {
 						funcs[sym.Name] = true
 					}
 				}
 			}
-			fmt.Printf("%s calls => [", m.Name)
+			fmt.Printf("\nALL %s calls => [", m.Name)
 			for fn := range funcs {
 				fmt.Printf(" %v ", fn)
 			}
