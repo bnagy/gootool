@@ -319,7 +319,7 @@ func main() {
 		disasm(&engine, symboliseBBLs, textBytes, sdb)
 
 		log.Println("Building graph...")
-		g := cfg.NewCFG()
+		g := cfg.NewCFG(sdb)
 		disasm(&engine, g.BuildNodes, textBytes, sdb)
 
 		log.Println("Linking graph nodes...")
@@ -342,13 +342,25 @@ func main() {
 
 		}
 
-		if m, ok := sdb.Name("_release_dotlock"); ok {
+		if m, ok := sdb.Name("_balancerest"); ok {
 			log.Printf("Crawling %s", m.Name)
+			funcs := make(map[string]bool)
 			results := make(chan cfg.BBL)
-			go g.CrawlFrom(m, sdb, results)
-			for rbbl := range results {
-				blatBBL(rbbl, rbbl.Symbol, sdb)
+			go g.CrawlFrom(m, results)
+			for bbl := range results {
+				blatBBL(bbl, bbl.Symbol, sdb)
+				for addr := range bbl.CallEdges {
+					sym, ok := sdb.At(addr)
+					if ok {
+						funcs[sym.Name] = true
+					}
+				}
 			}
+			fmt.Printf("%s calls => [", m.Name)
+			for fn := range funcs {
+				fmt.Printf(" %v ", fn)
+			}
+			fmt.Printf(" ]\n")
 		}
 
 	}

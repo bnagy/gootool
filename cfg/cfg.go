@@ -62,7 +62,8 @@ func isAnyImm(insn cs.Instruction) bool {
 }
 
 // Basic blocks are expected to have 1 Edge, 1 TrueEdge + 1 FalseEdge or no
-// exits iff they end with ret
+// exits iff they end with ret. CallEdges doesn't use *BBL because they can be
+// stubs, for which no BBL exists
 type BBL struct {
 	Symbol    symlist.SymEntry // symbol for the head insn
 	CallEdges map[uint]bool    // calls to other funcs ( don't break blocks )
@@ -102,23 +103,25 @@ func NewBBL() *BBL {
 
 type CFG struct {
 	Graph         map[uint]*BBL
+	sdb           *symlist.SymList
 	thisBBL       *BBL // little state vars to make the building easier
 	gatheringTail bool
 }
 
-func NewCFG() *CFG {
+func NewCFG(sdb *symlist.SymList) *CFG {
 	return &CFG{
 		Graph: make(map[uint]*BBL),
+		sdb:   sdb,
 	}
 }
 
 // Follows the type signature for a disasmCB in gootool.go
-func (cfg *CFG) BuildNodes(insn cs.Instruction, sdb *symlist.SymList) error {
+func (cfg *CFG) BuildNodes(insn cs.Instruction, _ *symlist.SymList) error {
 
 	// First pass, just fill in the instructions and add the nodes to the map
 
-	if _, ok := sdb.At(insn.Address); ok { // starting new BBL
-		sym, _, _ := sdb.Near(insn.Address)
+	if _, ok := cfg.sdb.At(insn.Address); ok { // starting new BBL
+		sym, _, _ := cfg.sdb.Near(insn.Address)
 		cfg.thisBBL = NewBBL()
 		cfg.thisBBL.Symbol = sym
 		cfg.Graph[insn.Address] = cfg.thisBBL
@@ -205,7 +208,7 @@ func (cfg *CFG) LinkNodes() {
 
 }
 
-func (g *CFG) Crawl(bbl BBL, tag uint32, sdb *symlist.SymList, results chan<- BBL, wg *sync.WaitGroup) {
+func (g *CFG) Crawl(bbl BBL, tag uint32, results chan<- BBL, wg *sync.WaitGroup) {
 
 	for {
 
@@ -223,7 +226,7 @@ func (g *CFG) Crawl(bbl BBL, tag uint32, sdb *symlist.SymList, results chan<- BB
 			// spawn a new worker for the true edge
 			if tbbl, exists := g.Graph[uint(te)]; exists {
 				wg.Add(1)
-				go g.Crawl(*tbbl, tag, sdb, results, wg)
+				go g.Crawl(*tbbl, tag, results, wg)
 			}
 
 			// this worker follows the false edge
@@ -242,7 +245,7 @@ func (g *CFG) Crawl(bbl BBL, tag uint32, sdb *symlist.SymList, results chan<- BB
 
 				// SPECIAL CASE - don't crawl always edges that fall through
 				// to a function head
-				if s, exists := sdb.At(uint(ae)); exists && s.Func {
+				if s, exists := g.sdb.At(uint(ae)); exists && s.Func {
 					break
 				}
 
@@ -261,7 +264,7 @@ func (g *CFG) Crawl(bbl BBL, tag uint32, sdb *symlist.SymList, results chan<- BB
 
 }
 
-func (g *CFG) CrawlFrom(sym symlist.SymEntry, sdb *symlist.SymList, results chan<- BBL) {
+func (g *CFG) CrawlFrom(sym symlist.SymEntry, results chan<- BBL) {
 
 	wg := &sync.WaitGroup{}
 	if bbl, exists := g.Graph[uint(sym.Value)]; exists {
@@ -270,12 +273,14 @@ func (g *CFG) CrawlFrom(sym symlist.SymEntry, sdb *symlist.SymList, results chan
 		// visited, and that crawl routine will abort. This lets us spawn when
 		// we hit a branch and have one routine die if the paths reconverge
 		tag := *bbl.CrawlTag
-		wg.Add(1)
-		go g.Crawl(*bbl, tag, sdb, results, wg)
-		wg.Wait()
+		go func() {
+			wg.Add(1)
+			go g.Crawl(*bbl, tag, results, wg)
+			wg.Wait()
+			close(results)
+		}()
 	}
 
-	close(results)
 	return
 
 }
