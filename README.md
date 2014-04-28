@@ -16,42 +16,45 @@ Screenshot
 =======
 
 ```
-_fuzzy_hash_buf Len: 13 Tail: 0 Edges: T:0x1000040be F:0x100003e94 A:0x0
-loc_0x100003e94 Len: 2 Tail: 0 Edges: T:0x1000040be F:0x100003e9d A:0x0
-loc_0x100003e9d Len: 4 Tail: 0 Edges: T:0x1000040be F:0x100003eb0 A:0x0 Calls ==> [ STUB_malloc ]
-loc_0x100003eb0 Len: 7 Tail: 0 Edges: T:0x100003f02 F:0x100003ec9 A:0x0 Calls ==> [ STUB_malloc ]
-loc_0x100003ec9 Len: 3 Tail: 0 Edges: T:0x100003ee1 F:0x100003ed9 A:0x0
-loc_0x100003ed9 Len: 2 Tail: 0 Edges: T:0x0 F:0x0 A:0x100003f02
-loc_0x100003ee1 Len: 2 Tail: 0 Edges: T:0x0 F:0x0 A:0x100003ef0
-loc_0x100003ef0 Len: 5 Tail: 0 Edges: T:0x100003ef0 F:0x100003efe A:0x0
-loc_0x100003efe Len: 1 Tail: 0 Edges: T:0x0 F:0x0 A:0x100003f02
-loc_0x100003f02 Len: 4 Tail: 0 Edges: T:0x0 F:0x0 A:0x100003f17
-loc_0x100003f0e Len: 1 Tail: 0 Edges: T:0x0 F:0x0 A:0x100003f10
-loc_0x100003f10 Len: 2 Tail: 0 Edges: T:0x0 F:0x0 A:0x100003f17
-loc_0x100003f17 Len: 40 Tail: 0 Edges: T:0x100004016 F:0x10000400e A:0x0 Calls ==> [ STUB___snprintf_chk  STUB_strlen  _ss_engine ]
-loc_0x10000400e Len: 2 Tail: 0 Edges: T:0x0 F:0x0 A:0x100004023
-loc_0x100004016 Len: 2 Tail: 0 Edges: T:0x10000400e F:0x10000401d A:0x0
-loc_0x10000401d Len: 2 Tail: 0 Edges: T:0x0 F:0x0 A:0x100004023
-loc_0x100004023 Len: 2 Tail: 0 Edges: T:0x100004059 F:0x10000402a A:0x0
-loc_0x10000402a Len: 12 Tail: 0 Edges: T:0x0 F:0x0 A:0x100004059
-loc_0x100004059 Len: 12 Tail: 0 Edges: T:0x100003f10 F:0x100004094 A:0x0 Calls ==> [ STUB___strcat_chk ]
-loc_0x100004094 Len: 7 Tail: 0 Edges: T:0x1000040b2 F:0x1000040ad A:0x0 Calls ==> [ STUB_strncpy ]
-loc_0x1000040ad Len: 1 Tail: 0 Edges: T:0x0 F:0x0 A:0x1000040b2 Calls ==> [ STUB_free ]
-loc_0x1000040b2 Len: 4 Tail: 0 Edges: T:0x0 F:0x0 A:0x1000040c3 Calls ==> [ STUB_free ]
-loc_0x1000040be Len: 1 Tail: 0 Edges: T:0x0 F:0x0 A:0x1000040c3
-loc_0x1000040c3 Len: 8 Tail: 2 Edges: T:0x0 F:0x0 A:0x0 [terminal]
-_fuzzy_hash_filename Len: 6 Tail: 0 Edges: T:0x100004121 F:0x1000040ec A:0x0
-loc_0x1000040ec Len: 3 Tail: 0 Edges: T:0x100004121 F:0x1000040f4 A:0x0
-loc_0x1000040f4 Len: 4 Tail: 0 Edges: T:0x100004121 F:0x100004105 A:0x0 Calls ==> [ STUB_fopen ]
-loc_0x100004105 Len: 9 Tail: 0 Edges: T:0x0 F:0x0 A:0x100004126 Calls ==> [ _fuzzy_hash_file  STUB_fclose ]
-loc_0x100004121 Len: 1 Tail: 0 Edges: T:0x0 F:0x0 A:0x100004126
-loc_0x100004126 Len: 4 Tail: 5 Edges: T:0x0 F:0x0 A:0x0 [terminal]
+(0x10000eac0): _needfree Len: 10 Tail: 0 Edges:  T: loc_0x10000eaee F: loc_0x10000eae3
+	0x10000eac0: 55                       push        rbp
+	0x10000eac1: 4889e5                   mov         rbp, rsp
+	0x10000eac4: 4883ec20                 sub         rsp, 0x20
+	0x10000eac8: 48897df0                 mov         qword ptr [rbp + 0xfffffffffffffff0], rdi
+	0x10000eacc: 8975ec                   mov         dword ptr [rbp + 0xffffffffffffffec], esi
+	0x10000eacf: 488b7df0                 mov         rdi, qword ptr [rbp + 0xfffffffffffffff0]
+	0x10000ead3: 488b7f20                 mov         rdi, qword ptr [rdi + 0x20]
+	0x10000ead7: 8b7718                   mov         esi, dword ptr [rdi + 0x18]
+	0x10000eada: 3b75ec                   cmp         esi, dword ptr [rbp + 0xffffffffffffffec]
+	0x10000eadd: 0f8c0b000000             jl          loc_0x10000eaee
+loc_0x10000eaee Len: 4 Tail: 0 Edges:  T: loc_0x10000eb0d F: loc_0x10000eb02 Calls ==> [ _makenextfile ]
+	0x10000eaee: 488b7df0                 mov         rdi, qword ptr [rbp + 0xfffffffffffffff0]
+	0x10000eaf2: e8a9feffff               call        _makenextfile
+	0x10000eaf7: 3d00000000               cmp         eax, 0
+	0x10000eafc: 0f840b000000             je          loc_0x10000eb0d
+loc_0x10000eae3 Len: 3 Tail: 0 Edges:  A: loc_0x10000eb14
+	0x10000eae3: 8b45ec                   mov         eax, dword ptr [rbp + 0xffffffffffffffec]
+	0x10000eae6: 8945fc                   mov         dword ptr [rbp + 0xfffffffffffffffc], eax
+	0x10000eae9: e926000000               jmp         loc_0x10000eb14
+loc_0x10000eb14 Len: 4 Tail: 1 Edges:  [terminal]
+	0x10000eb14: 8b45fc                   mov         eax, dword ptr [rbp + 0xfffffffffffffffc]
+	0x10000eb17: 4883c420                 add         rsp, 0x20
+	0x10000eb1b: 5d                       pop         rbp
+	0x10000eb1c: c3                       ret
+loc_0x10000eb0d Len: 1 Tail: 0 Edges:  A: loc_0x10000eb14
+	0x10000eb0d: c745fc00000000           mov         dword ptr [rbp + 0xfffffffffffffffc], 0
+loc_0x10000eb02 Len: 3 Tail: 0 Edges:  A: loc_0x10000eb14
+	0x10000eb02: 8b45ec                   mov         eax, dword ptr [rbp + 0xffffffffffffffec]
+	0x10000eb05: 8945fc                   mov         dword ptr [rbp + 0xfffffffffffffffc], eax
+	0x10000eb08: e907000000               jmp         loc_0x10000eb14
+
+ALL _needfree calls => [ _makenextfile  ]
 ```
 
 BUGS
 =======
 
-This is definitely going to fail spectacularly on any kind of obfuscated binary. Also, Go's macho parser doesn't seem to recognise some magic values, so some binaries just won't parse at all.
+This is definitely going to fail spectacularly on any kind of obfuscated binary. It's also going to be pretty crappy without symbols, and may well completely break.
 
 - dead code detection at the end of blocks is pretty crappy
 - Doesn't work on Fat binaries, only native Mach-O
