@@ -116,7 +116,7 @@ func NewCFG(sdb *symlist.SymList) *CFG {
 }
 
 // Follows the type signature for a disasmCB in gootool.go
-func (cfg *CFG) BuildNodes(insn cs.Instruction, _ *symlist.SymList) error {
+func (cfg *CFG) BuildNodes(insn cs.Instruction) error {
 
 	// First pass, just fill in the instructions and add the nodes to the map
 

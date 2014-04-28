@@ -9,6 +9,7 @@ import (
 	cs "github.com/bnagy/gapstone"
 	"github.com/bnagy/gootool/cfg"
 	"github.com/bnagy/gootool/symlist"
+	"github.com/bnagy/gootool/util"
 	"log"
 	"os"
 	"path"
@@ -17,60 +18,7 @@ import (
 const N_SECT = uint8(0x0e)
 
 var outbuf = new(bytes.Buffer) // This will go away once we convert to graphy stuff
-type disasmCB func(insn cs.Instruction, symDB *symlist.SymList) error
-
-func inGroup(insn cs.Instruction, grp uint) bool {
-	for _, g := range insn.Groups {
-		if g == grp {
-			return true
-		}
-	}
-	return false
-}
-
-// Conditional JMP to an immediate
-func isBranchImm(insn cs.Instruction) bool {
-	if inGroup(insn, cs.X86_GRP_JUMP) && insn.Id != cs.X86_INS_JMP {
-		if insn.X86.Operands[0].Type == cs.X86_OP_IMM {
-			return true
-		}
-	}
-	return false
-}
-
-// Unconditional JMP to an immediate ( JMP / LONGJMP )
-func isUncondImm(insn cs.Instruction) bool {
-	if insn.Id == cs.X86_INS_JMP && insn.X86.Operands[0].Type == cs.X86_OP_IMM {
-		return true
-	}
-	return false
-}
-
-// Any JMP to an immediate
-func isJmpImm(insn cs.Instruction) bool {
-	if inGroup(insn, cs.X86_GRP_JUMP) && insn.X86.Operands[0].Type == cs.X86_OP_IMM {
-		return true
-	}
-	return false
-}
-
-// CALL of an immediate
-func isCallImm(insn cs.Instruction) bool {
-	if insn.Id == cs.X86_INS_CALL && insn.X86.Operands[0].Type == cs.X86_OP_IMM {
-		return true
-	}
-	return false
-}
-
-// Any JMP or CALL to an immediate
-func isJmpCallImm(insn cs.Instruction) bool {
-	if inGroup(insn, cs.X86_GRP_JUMP) || insn.Id == cs.X86_INS_CALL {
-		if insn.X86.Operands[0].Type == cs.X86_OP_IMM {
-			return true
-		}
-	}
-	return false
-}
+type disasmCB func(insn cs.Instruction) error
 
 func dumpResolvedImmediate(buf *bytes.Buffer, insn cs.Instruction, sym symlist.SymEntry, off int) {
 	if off > 0 {
@@ -139,7 +87,7 @@ disasm:
 
 		for _, insn := range insns {
 			cursor = uint64(insn.Address) - base
-			callback(insn, sdb)
+			callback(insn)
 		}
 
 		// If there's a symbol > the end cursor, start disassembling again
@@ -161,46 +109,6 @@ disasm:
 
 }
 
-func symboliseBBLs(insn cs.Instruction, sdb *symlist.SymList) error {
-	if isJmpCallImm(insn) {
-		// Add a BBL head symbol for the target of any jmp or call with an
-		// immediate operand
-		imm := uint64(insn.X86.Operands[0].Imm)
-		if _, exists := sdb.At(uint(imm)); !exists &&
-			imm > sdb.TextBase && // don't add BBL heads outside the text section
-			imm < sdb.TextBase+sdb.TextSize {
-
-			sdb.AddBBL(
-				macho.Symbol{
-					Name:  fmt.Sprintf("loc_0x%x", imm),
-					Type:  N_SECT,
-					Sect:  uint8(1),
-					Desc:  uint16(0),
-					Value: imm,
-				},
-			)
-
-		}
-		// For any kind of JMP ( but not call ), add a symbol for the next
-		// instruction, since it needs to become a BBL head
-		if isJmpImm(insn) {
-			if _, exists := sdb.At(insn.Address + insn.Size); !exists {
-				sdb.AddBBL(
-					macho.Symbol{
-						Name:  fmt.Sprintf("loc_0x%x", insn.Address+insn.Size),
-						Type:  N_SECT,
-						Sect:  uint8(1),
-						Desc:  uint16(0),
-						Value: uint64(insn.Address + insn.Size),
-					},
-				)
-			}
-		}
-	}
-
-	return nil
-}
-
 func dumpBlocks(insn cs.Instruction, sdb *symlist.SymList) error {
 
 	outbuf.Reset()
@@ -214,8 +122,7 @@ func dumpBlocks(insn cs.Instruction, sdb *symlist.SymList) error {
 	}
 
 	// Try to symbolically resolve any jmp/call with an immediate operand
-	if (inGroup(insn, cs.X86_GRP_JUMP) || insn.Id == cs.X86_INS_CALL) &&
-		insn.X86.Operands[0].Type == cs.X86_OP_IMM {
+	if util.IsJmpCallImm(insn) {
 
 		imm := uint(insn.X86.Operands[0].Imm)
 		if sym, off, found := sdb.Near(imm); found {
@@ -316,7 +223,7 @@ func main() {
 		engine.SetOption(cs.CS_OPT_DETAIL, cs.CS_OPT_ON)
 
 		log.Println("Symbolizing...")
-		disasm(&engine, symboliseBBLs, textBytes, sdb)
+		disasm(&engine, sdb.SymboliseBBLs, textBytes, sdb)
 
 		log.Println("Building graph...")
 		g := cfg.NewCFG(sdb)

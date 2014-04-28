@@ -6,6 +6,8 @@ import (
 	"debug/macho"
 	"encoding/binary"
 	"fmt"
+	cs "github.com/bnagy/gapstone"
+	"github.com/bnagy/gootool/util"
 )
 
 // https://developer.apple.com/library/mac/documentation/DeveloperTools/Conceptual/MachORuntime/Reference/reference.html#//apple_ref/doc/uid/20001298-BAJFFCGF
@@ -260,4 +262,44 @@ func NewSymList(mo *macho.File) (*SymList, error) {
 
 	return sl, nil
 
+}
+
+func (sl *SymList) SymboliseBBLs(insn cs.Instruction) error {
+	if util.IsJmpCallImm(insn) {
+		// Add a BBL head symbol for the target of any jmp or call with an
+		// immediate operand
+		imm := uint64(insn.X86.Operands[0].Imm)
+		if _, exists := sl.At(uint(imm)); !exists &&
+			imm > sl.TextBase && // don't add BBL heads outside the text section
+			imm < sl.TextBase+sl.TextSize {
+
+			sl.AddBBL(
+				macho.Symbol{
+					Name:  fmt.Sprintf("loc_0x%x", imm),
+					Type:  N_SECT,
+					Sect:  uint8(1),
+					Desc:  uint16(0),
+					Value: imm,
+				},
+			)
+
+		}
+		// For any kind of JMP ( but not call ), add a symbol for the next
+		// instruction, since it needs to become a BBL head
+		if util.IsJmpImm(insn) {
+			if _, exists := sl.At(insn.Address + insn.Size); !exists {
+				sl.AddBBL(
+					macho.Symbol{
+						Name:  fmt.Sprintf("loc_0x%x", insn.Address+insn.Size),
+						Type:  N_SECT,
+						Sect:  uint8(1),
+						Desc:  uint16(0),
+						Value: uint64(insn.Address + insn.Size),
+					},
+				)
+			}
+		}
+	}
+
+	return nil
 }
