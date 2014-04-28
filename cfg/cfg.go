@@ -1,8 +1,6 @@
 package cfg
 
 import (
-	"bytes"
-	"fmt"
 	cs "github.com/bnagy/gapstone"
 	"github.com/bnagy/gootool/symlist"
 	"github.com/bnagy/gootool/util"
@@ -172,52 +170,11 @@ func (cfg *CFG) LinkNodes() {
 
 }
 
-func (cfg *CFG) BlatBBL(bbl *BBL, buf *bytes.Buffer) {
+func (g *CFG) crawl(bbl BBL, tag uint32, results chan<- BBL, wg *sync.WaitGroup) {
 
-	// This is the part where I miss Ruby ;)
-
-	sym := bbl.Symbol
-	if sym.Func { // Function head
-		fmt.Fprintf(buf, "\n(0x%x): ", bbl.Symbol.Value)
-	}
-
-	fmt.Fprintf(buf, "%v Len: %v Tail: %v Edges: ",
-		bbl.Symbol.Name,
-		len(bbl.Insns),
-		len(bbl.Tail),
-	)
-
-	for _, e := range bbl.Edges {
-		switch e.Type {
-		case TrueEdge:
-			fmt.Fprintf(buf, " T: %s", e.Target.Symbol.Name)
-		case FalseEdge:
-			fmt.Fprintf(buf, " F: %s", e.Target.Symbol.Name)
-		case AlwaysEdge:
-			fmt.Fprintf(buf, " A: %s", e.Target.Symbol.Name)
-
-		}
-	}
-
-	if len(bbl.Calls) > 0 {
-		fmt.Fprintf(buf, " Calls ==> [")
-		for addr := range bbl.Calls {
-			sym, _ := cfg.sdb.At(addr)
-			fmt.Fprintf(buf, " %v ", sym.Name)
-		}
-		fmt.Fprintf(buf, "]")
-	}
-	if len(bbl.Edges) == 0 { // no edges
-		fmt.Fprintf(buf, " [terminal]")
-	}
-	fmt.Fprintf(buf, "\n")
-}
-
-func (g *CFG) Crawl(bbl BBL, tag uint32, results chan<- BBL, wg *sync.WaitGroup) {
-
-crawl:
 	for {
 
+		// Atomically increment the BBL tag
 		swapped := atomic.CompareAndSwapUint32(bbl.CrawlTag, tag, tag+1)
 		if !swapped {
 			// Another crawler beat us here. Die.
@@ -236,13 +193,14 @@ crawl:
 			// SPECIAL CASE - don't crawl always edges that fall through
 			// to a function head
 			if bbl.Edges[0].Target.Symbol.Func {
-				break crawl
+				wg.Done()
+				return
 			}
 			bbl = *bbl.Edges[0].Target
 		case 2:
 			// Spin up another crawler to handle the second edge
 			wg.Add(1)
-			go g.Crawl(*bbl.Edges[1].Target, tag, results, wg)
+			go g.crawl(*bbl.Edges[1].Target, tag, results, wg)
 			// This crawler follows the first
 			bbl = *bbl.Edges[0].Target
 		default:
@@ -253,23 +211,20 @@ crawl:
 
 }
 
-func (g *CFG) CrawlFrom(sym symlist.SymEntry, results chan<- BBL) {
+func (g *CFG) CrawlFrom(sym symlist.SymEntry) <-chan BBL {
 
+	results := make(chan BBL)
 	wg := &sync.WaitGroup{}
 	if bbl, exists := g.Graph[uint(sym.Value)]; exists {
-		// Crawlers will atomic.CompareAndSwapUint32 the tag they find in each
-		// node with the new tag. If no swap was done then the node has been
-		// visited, and that crawl routine will abort. This lets us spawn when
-		// we hit a branch and have one routine die if the paths reconverge
 		tag := *bbl.CrawlTag
 		go func() {
 			wg.Add(1)
-			go g.Crawl(*bbl, tag, results, wg)
+			go g.crawl(*bbl, tag, results, wg)
 			wg.Wait()
 			close(results)
 		}()
 	}
 
-	return
+	return results
 
 }

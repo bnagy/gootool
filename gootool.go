@@ -22,7 +22,7 @@ type disasmCB func(insn cs.Instruction) error
 
 func disasm(engine *cs.Engine, callback disasmCB, code []byte, sdb *symlist.SymList) {
 
-	base := sdb.Front().Value.(symlist.SymEntry).Value
+	base := sdb.TextBase
 	cursor := uint64(0)
 
 disasm:
@@ -37,9 +37,9 @@ disasm:
 			cursor+base,   // starting address
 			0,             // insns to disassemble, 0 for all
 		)
+		cursor = uint64(insns[len(insns)-1].Address) - base
 
 		for _, insn := range insns {
-			cursor = uint64(insn.Address) - base
 			callback(insn)
 		}
 
@@ -127,19 +127,17 @@ func main() {
 			}
 
 			outbuf.Reset()
-			g.BlatBBL(bbl, outbuf)
+			formatters.DumpBBL(bbl, sdb, outbuf)
 			fmt.Print(outbuf.String())
 		}
 
-		if m, ok := sdb.Name("_needfree"); ok {
+		if m, ok := sdb.Name("_set_sig_handlers"); ok {
 			log.Printf("Crawling %s", m.Name)
 			funcs := make(map[string]bool)
-			results := make(chan cfg.BBL)
-			go g.CrawlFrom(m, results)
-			for bbl := range results {
+			for bbl := range g.CrawlFrom(m) {
 
 				outbuf.Reset()
-				g.BlatBBL(&bbl, outbuf)
+				formatters.DumpBBL(&bbl, sdb, outbuf)
 				fmt.Print(outbuf.String())
 
 				for _, insn := range bbl.Insns {
