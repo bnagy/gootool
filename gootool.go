@@ -129,6 +129,11 @@ func main() {
 			outbuf.Reset()
 			formatters.DumpBBL(bbl, sdb, outbuf)
 			fmt.Print(outbuf.String())
+			for _, insn := range bbl.Insns {
+				outbuf.Reset()
+				formatters.DumpInsn(insn, sdb, outbuf)
+				fmt.Printf("\t%s\n", outbuf.String())
+			}
 		}
 
 		if m, ok := sdb.Name("_set_sig_handlers"); ok {

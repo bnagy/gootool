@@ -132,13 +132,16 @@ func (cfg *CFG) LinkNodes() {
 			imm := uint(lastInsn.X86.Operands[0].Imm)
 			cfg.linkBBLToAddr(bbl, TrueEdge, imm)
 
+			var fallTo uint64
 			if len(bbl.Tail) > 0 {
 				tail := bbl.Tail[len(bbl.Tail)-1]
-				fallTo := tail.Address + tail.Size
-				cfg.linkBBLToAddr(bbl, FalseEdge, fallTo)
+				fallTo = uint64(tail.Address + tail.Size)
 			} else {
-				fallTo := lastInsn.Address + lastInsn.Size
-				cfg.linkBBLToAddr(bbl, FalseEdge, fallTo)
+				fallTo = uint64(lastInsn.Address + lastInsn.Size)
+			}
+
+			if cfg.sdb.InText(fallTo) {
+				cfg.linkBBLToAddr(bbl, FalseEdge, uint(fallTo))
 			}
 
 			continue
@@ -158,13 +161,16 @@ func (cfg *CFG) LinkNodes() {
 		}
 
 		// Everything else - add a fallthrough edge to the next BBL
+		var fallTo uint64
 		if len(bbl.Tail) > 0 {
 			tail := bbl.Tail[len(bbl.Tail)-1]
-			fallTo := tail.Address + tail.Size
-			cfg.linkBBLToAddr(bbl, AlwaysEdge, fallTo)
+			fallTo = uint64(tail.Address + tail.Size)
 		} else {
-			fallTo := lastInsn.Address + lastInsn.Size
-			cfg.linkBBLToAddr(bbl, AlwaysEdge, fallTo)
+			fallTo = uint64(lastInsn.Address + lastInsn.Size)
+		}
+
+		if cfg.sdb.InText(fallTo) {
+			cfg.linkBBLToAddr(bbl, AlwaysEdge, uint(fallTo))
 		}
 	}
 

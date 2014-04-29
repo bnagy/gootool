@@ -168,6 +168,10 @@ func (sl *SymList) Len() int {
 	return len(sl.db)
 }
 
+func (sl *SymList) InText(addr uint64) bool {
+	return addr >= sl.TextBase && addr < sl.TextBase+sl.TextSize
+}
+
 func NewSymList(mo *macho.File) (*SymList, error) {
 
 	sl := &SymList{
@@ -197,6 +201,18 @@ func NewSymList(mo *macho.File) (*SymList, error) {
 
 	sl.TextBase = textSection.Addr
 	sl.TextSize = textSection.Size
+
+	if sl.Len() == 0 {
+		sl.AddFn(
+			macho.Symbol{
+				Name:  "<no_syms>_start",
+				Type:  N_SECT,
+				Sect:  uint8(1),
+				Desc:  uint16(0),
+				Value: sl.TextBase,
+			},
+		)
+	}
 
 	if len(mo.Dysymtab.IndirectSyms) == 0 {
 		// No dynamic symbols, nothing more to do.
@@ -266,28 +282,38 @@ func NewSymList(mo *macho.File) (*SymList, error) {
 
 func (sl *SymList) SymboliseBBLs(insn cs.Instruction) error {
 	if util.IsJmpCallImm(insn) {
+
 		// Add a BBL head symbol for the target of any jmp or call with an
 		// immediate operand
 		imm := uint64(insn.X86.Operands[0].Imm)
-		if _, exists := sl.At(uint(imm)); !exists &&
-			imm > sl.TextBase && // don't add BBL heads outside the text section
-			imm < sl.TextBase+sl.TextSize {
-
-			sl.AddBBL(
-				macho.Symbol{
-					Name:  fmt.Sprintf("loc_0x%x", imm),
-					Type:  N_SECT,
-					Sect:  uint8(1),
-					Desc:  uint16(0),
-					Value: imm,
-				},
-			)
+		if _, exists := sl.At(uint(imm)); !exists && sl.InText(imm) {
+			if util.IsCallImm(insn) {
+				sl.AddFn(
+					macho.Symbol{
+						Name:  fmt.Sprintf("func_0x%x", imm),
+						Type:  N_SECT,
+						Sect:  uint8(1),
+						Desc:  uint16(0),
+						Value: imm,
+					},
+				)
+			} else {
+				sl.AddBBL(
+					macho.Symbol{
+						Name:  fmt.Sprintf("loc_0x%x", imm),
+						Type:  N_SECT,
+						Sect:  uint8(1),
+						Desc:  uint16(0),
+						Value: imm,
+					},
+				)
+			}
 
 		}
 		// For any kind of JMP ( but not call ), add a symbol for the next
 		// instruction, since it needs to become a BBL head
 		if util.IsJmpImm(insn) {
-			if _, exists := sl.At(insn.Address + insn.Size); !exists {
+			if _, exists := sl.At(insn.Address + insn.Size); !exists && sl.InText(uint64(insn.Address+insn.Size)) {
 				sl.AddBBL(
 					macho.Symbol{
 						Name:  fmt.Sprintf("loc_0x%x", insn.Address+insn.Size),
