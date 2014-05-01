@@ -45,6 +45,12 @@ func NewBBL() *BBL {
 	}
 }
 
+type ByAddr []BBL
+
+func (a ByAddr) Len() int           { return len(a) }
+func (a ByAddr) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a ByAddr) Less(i, j int) bool { return a[i].Symbol.Value < a[j].Symbol.Value }
+
 type CFG struct {
 	Graph         map[uint]*BBL
 	sdb           *symlist.SymList

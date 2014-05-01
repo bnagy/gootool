@@ -1,0 +1,5 @@
+digraph test123 {
+  a -> "0x10000d5d0";
+  "0x10000d5d0" [shape=box,label="0x10000d5d0: push        rbp\l0x10000d5d1: mov         rbp, rsp\l0x10000d5d4: sub         rsp, 0x30\l0x10000d5d8: mov         dword ptr [rbp + 0xfffffffffffffffc], edi\l0x10000d5db: movsxd      rdi, dword ptr [rbp + 0xfffffffffffffffc]\l0x10000d5df: call        STUB_malloc\l",fontname="menlo"];
+}
+       

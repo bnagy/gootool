@@ -8,6 +8,7 @@ import (
 	cs "github.com/bnagy/gapstone"
 	"github.com/bnagy/gootool/cfg"
 	"github.com/bnagy/gootool/formatters"
+	"github.com/bnagy/gootool/graph"
 	"github.com/bnagy/gootool/symlist"
 	"log"
 	"os"
@@ -136,7 +137,7 @@ func main() {
 			}
 		}
 
-		if m, ok := sdb.Name("_set_sig_handlers"); ok {
+		if m, ok := sdb.Name("_make_conn"); ok {
 			log.Printf("Crawling %s", m.Name)
 			funcs := make(map[string]bool)
 			for bbl := range g.CrawlFrom(m) {
@@ -163,6 +164,11 @@ func main() {
 				fmt.Printf(" %v ", fn)
 			}
 			fmt.Printf(" ]\n")
+			pageBytes, err := graph.RenderGraph(m, g, sdb)
+			if err == nil {
+				fmt.Print(string(pageBytes))
+			}
+
 		}
 
 	}
