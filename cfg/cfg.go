@@ -23,7 +23,7 @@ type Edge struct {
 }
 
 // Basic blocks are expected to have 1 Edge, 1 TrueEdge + 1 FalseEdge or no
-// exits iff they end with ret. CallEdges doesn't use *BBL because they can be
+// exits iff they end with ret. Calls doesn't use *BBL because they can be
 // stubs, for which no BBL exists
 type BBL struct {
 	Symbol   symlist.SymEntry // symbol for the head insn
@@ -174,6 +174,32 @@ func (cfg *CFG) LinkNodes() {
 		}
 	}
 
+	cfg.consolidateCalls()
+
+}
+
+func (g *CFG) consolidateCalls() {
+	// Crawl the BBLs that are reachable from each function head and add their
+	// calls to the map of the head BBL
+	for e := g.sdb.Front(); e != nil; e = e.Next() {
+
+		if sym := e.Value.(symlist.SymEntry); sym.IsFunc() {
+
+			bbl, ok := g.Graph[uint(sym.Value)]
+			if !ok {
+				continue
+			}
+
+			for node := range g.CrawlFrom(sym) {
+				for addr := range node.Calls {
+					if _, ok := g.sdb.At(addr); ok {
+						bbl.Calls[addr] = true
+					}
+				}
+			}
+		}
+
+	}
 }
 
 func (g *CFG) crawl(bbl BBL, tag uint32, results chan<- BBL, wg *sync.WaitGroup) {
@@ -198,7 +224,7 @@ func (g *CFG) crawl(bbl BBL, tag uint32, results chan<- BBL, wg *sync.WaitGroup)
 		case 1:
 			// SPECIAL CASE - don't crawl always edges that fall through
 			// to a function head
-			if bbl.Edges[0].Target.Symbol.Func {
+			if bbl.Edges[0].Target.Symbol.IsFunc() {
 				wg.Done()
 				return
 			}

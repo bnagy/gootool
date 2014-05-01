@@ -116,7 +116,7 @@ func main() {
 		for e := sdb.Front(); e != nil; e = e.Next() {
 
 			sym := e.Value.(symlist.SymEntry)
-			if sym.Stub {
+			if sym.IsStub() {
 				continue
 			}
 

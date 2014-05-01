@@ -18,12 +18,22 @@ const REFERENCED_DYNAMICALLY = uint16(0x0010)
 const S_SYMBOL_STUBS = uint32(0x08)
 const S_LAZY_SYMBOL_POINTERS = uint32(0x07)
 
+type SymType uint8
+
+const (
+	BBL  SymType = 0
+	Stub SymType = 1
+	Func SymType = 2
+)
+
 type SymEntry struct {
-	BBL  bool
-	Stub bool
-	Func bool
+	Type SymType
 	macho.Symbol
 }
+
+func (se *SymEntry) IsBBL() bool  { return se.Type == BBL }
+func (se *SymEntry) IsFunc() bool { return se.Type == Func }
+func (se *SymEntry) IsStub() bool { return se.Type == Stub }
 
 type SymList struct {
 	*list.List
@@ -128,15 +138,15 @@ func (sl *SymList) doAdd(sym SymEntry) {
 // Make a ghetto symbol "DB" and fill the linked list
 // Map is for O(1) address->string lookups, list is for sym+offset lookups
 func (sl *SymList) AddFn(sym macho.Symbol) {
-	sl.doAdd(SymEntry{false, false, true, sym})
+	sl.doAdd(SymEntry{Func, sym})
 }
 
 func (sl *SymList) AddBBL(sym macho.Symbol) {
-	sl.doAdd(SymEntry{true, false, false, sym})
+	sl.doAdd(SymEntry{BBL, sym})
 }
 
 func (sl *SymList) AddStub(sym macho.Symbol) {
-	sl.doAdd(SymEntry{false, true, false, sym})
+	sl.doAdd(SymEntry{Stub, sym})
 }
 
 func (sl *SymList) Near(addr uint) (sym SymEntry, offset int, found bool) {

@@ -3,58 +3,60 @@ gootool
 
 Silly PoC of a limited otool clone based on the capstone disassembly lib
 
-Eventually aiming to produce silly graph output with D3.js
+Eventually aiming to produce lame graph output to troll Halvar
 
 This is a toy, not a tool.
 
 TODO:
 =======
 
-Next step is to add the D3 html template code, CSS, etc, then write a transformer for the CFG nodes to the required raw data as JSON.
+Graph transforms and http server
 
 Screenshot
 =======
 
 ```
-(0x10000eac0): _needfree Len: 10 Tail: 0 Edges:  T: loc_0x10000eaee F: loc_0x10000eae3
-	0x10000eac0: 55                       push        rbp
-	0x10000eac1: 4889e5                   mov         rbp, rsp
-	0x10000eac4: 4883ec20                 sub         rsp, 0x20
-	0x10000eac8: 48897df0                 mov         qword ptr [rbp + 0xfffffffffffffff0], rdi
-	0x10000eacc: 8975ec                   mov         dword ptr [rbp + 0xffffffffffffffec], esi
-	0x10000eacf: 488b7df0                 mov         rdi, qword ptr [rbp + 0xfffffffffffffff0]
-	0x10000ead3: 488b7f20                 mov         rdi, qword ptr [rdi + 0x20]
-	0x10000ead7: 8b7718                   mov         esi, dword ptr [rdi + 0x18]
-	0x10000eada: 3b75ec                   cmp         esi, dword ptr [rbp + 0xffffffffffffffec]
-	0x10000eadd: 0f8c0b000000             jl          loc_0x10000eaee
-loc_0x10000eaee Len: 4 Tail: 0 Edges:  T: loc_0x10000eb0d F: loc_0x10000eb02 Calls ==> [ _makenextfile ]
-	0x10000eaee: 488b7df0                 mov         rdi, qword ptr [rbp + 0xfffffffffffffff0]
-	0x10000eaf2: e8a9feffff               call        _makenextfile
-	0x10000eaf7: 3d00000000               cmp         eax, 0
-	0x10000eafc: 0f840b000000             je          loc_0x10000eb0d
-loc_0x10000eae3 Len: 3 Tail: 0 Edges:  A: loc_0x10000eb14
-	0x10000eae3: 8b45ec                   mov         eax, dword ptr [rbp + 0xffffffffffffffec]
-	0x10000eae6: 8945fc                   mov         dword ptr [rbp + 0xfffffffffffffffc], eax
-	0x10000eae9: e926000000               jmp         loc_0x10000eb14
-loc_0x10000eb14 Len: 4 Tail: 1 Edges:  [terminal]
-	0x10000eb14: 8b45fc                   mov         eax, dword ptr [rbp + 0xfffffffffffffffc]
-	0x10000eb17: 4883c420                 add         rsp, 0x20
-	0x10000eb1b: 5d                       pop         rbp
-	0x10000eb1c: c3                       ret
-loc_0x10000eb0d Len: 1 Tail: 0 Edges:  A: loc_0x10000eb14
-	0x10000eb0d: c745fc00000000           mov         dword ptr [rbp + 0xfffffffffffffffc], 0
-loc_0x10000eb02 Len: 3 Tail: 0 Edges:  A: loc_0x10000eb14
-	0x10000eb02: 8b45ec                   mov         eax, dword ptr [rbp + 0xffffffffffffffec]
-	0x10000eb05: 8945fc                   mov         dword ptr [rbp + 0xfffffffffffffffc], eax
-	0x10000eb08: e907000000               jmp         loc_0x10000eb14
-
-ALL _needfree calls => [ _makenextfile  ]
+(0x10000d5d0): _zalloc Len: 9 Tail: 0 Edges:  T: loc_0x10000d64f F: loc_0x10000d5f6 Calls ==> [ STUB_malloc  ___inline_memset_chk  STUB___memset_chk ]
+	0x10000d5d0: 55                       push        rbp
+	0x10000d5d1: 4889e5                   mov         rbp, rsp
+	0x10000d5d4: 4883ec30                 sub         rsp, 0x30
+	0x10000d5d8: 897dfc                   mov         dword ptr [rbp + 0xfffffffffffffffc], edi
+	0x10000d5db: 48637dfc                 movsxd      rdi, dword ptr [rbp + 0xfffffffffffffffc]
+	0x10000d5df: e8181f0000               call        STUB_malloc
+	0x10000d5e4: 488945f0                 mov         qword ptr [rbp + 0xfffffffffffffff0], rax
+	0x10000d5e8: 48817df000000000         cmp         qword ptr [rbp + 0xfffffffffffffff0], 0
+	0x10000d5f0: 0f8459000000             je          loc_0x10000d64f
+loc_0x10000d5f6 Len: 5 Tail: 0 Edges:  T: loc_0x10000d639 F: loc_0x10000d614
+	0x10000d5f6: 48b8ffffffffffffffff     movabs      rax, -1
+	0x10000d600: 488b4df0                 mov         rcx, qword ptr [rbp + 0xfffffffffffffff0]
+	0x10000d604: 483dffffffff             cmp         rax, -1
+	0x10000d60a: 48894de8                 mov         qword ptr [rbp + 0xffffffffffffffe8], rcx
+	0x10000d60e: 0f8425000000             je          loc_0x10000d639
+loc_0x10000d614 Len: 7 Tail: 0 Edges:  A: loc_0x10000d64f Calls ==> [ STUB___memset_chk ]
+	0x10000d614: be00000000               mov         esi, 0
+	0x10000d619: 48b9ffffffffffffffff     movabs      rcx, -1
+	0x10000d623: 488b7df0                 mov         rdi, qword ptr [rbp + 0xfffffffffffffff0]
+	0x10000d627: 486355fc                 movsxd      rdx, dword ptr [rbp + 0xfffffffffffffffc]
+	0x10000d62b: e80c1e0000               call        STUB___memset_chk
+	0x10000d630: 488945e0                 mov         qword ptr [rbp + 0xffffffffffffffe0], rax
+	0x10000d634: e916000000               jmp         loc_0x10000d64f
+loc_0x10000d639 Len: 5 Tail: 0 Edges:  A: loc_0x10000d64f Calls ==> [ ___inline_memset_chk ]
+	0x10000d639: be00000000               mov         esi, 0
+	0x10000d63e: 488b7df0                 mov         rdi, qword ptr [rbp + 0xfffffffffffffff0]
+	0x10000d642: 486355fc                 movsxd      rdx, dword ptr [rbp + 0xfffffffffffffffc]
+	0x10000d646: e815000000               call        ___inline_memset_chk
+	0x10000d64b: 488945d8                 mov         qword ptr [rbp + 0xffffffffffffffd8], rax
+loc_0x10000d64f Len: 4 Tail: 1 Edges:  [terminal]
+	0x10000d64f: 488b45f0                 mov         rax, qword ptr [rbp + 0xfffffffffffffff0]
+	0x10000d653: 4883c430                 add         rsp, 0x30
+	0x10000d657: 5d                       pop         rbp
+	0x10000d658: c3                       ret
 ```
 
 BUGS
 =======
 
-This is definitely going to fail spectacularly on any kind of obfuscated binary. It's also going to be pretty crappy without symbols, and may well completely break.
+This is definitely going to fail spectacularly on any kind of obfuscated binary. It's also pretty crappy without symbols, but it does its best.
 
 - dead code detection at the end of blocks is pretty crappy
 - Doesn't work on Fat binaries, only native Mach-O

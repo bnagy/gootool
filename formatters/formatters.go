@@ -79,7 +79,7 @@ func DumpBBL(bbl *cfg.BBL, sdb *symlist.SymList, buf *bytes.Buffer) {
 	// This is the part where I miss Ruby ;)
 
 	sym := bbl.Symbol
-	if sym.Func { // Function head
+	if sym.IsFunc() { // Function head
 		fmt.Fprintf(buf, "\n(0x%x): ", bbl.Symbol.Value)
 	}
 
