@@ -3,14 +3,12 @@ gootool
 
 Silly PoC of a limited otool clone based on the capstone disassembly lib
 
-Eventually aiming to produce lame graph output to troll Halvar
-
-This is a toy, not a tool.
+~~Eventually aiming to produce~~ FEATURES lame graph output to troll Halvar
 
 TODO:
 =======
 
-Refactor, clean up, add text / web options, better error handling, ~~add pug images to web output~~
+Refactor, clean up, ~~add text / web options~~, better error handling, ~~add pug images to web output~~
 
 Screenshots
 =======
@@ -71,7 +69,9 @@ This is definitely going to fail spectacularly on any kind of obfuscated binary.
 
 - dead code detection at the end of blocks is pretty crappy
 - Doesn't work on Fat binaries, only native Mach-O
-- Unlikely to work on 32 bit, don't have dinohardware; don't care.
+- Graph output for the CFG can be wonky, T/F options should be equally ranked where possible?
+- Zero otters
+- Unlikely to work on 32 bit
 
 Contributing
 =======
@@ -81,6 +81,6 @@ Yes. Please to writing rest of web bigdata interface for clouds. Thx.
 License
 =======
 
-None. BSD, whatever. This is a toy not a tool.
+Licenses are for software. This is an elaborate joke.
 
 

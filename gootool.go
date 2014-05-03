@@ -7,19 +7,16 @@ import (
 	"fmt"
 	cs "github.com/bnagy/gapstone"
 	"github.com/bnagy/gootool/cfg"
-	// "github.com/bnagy/gootool/formatters"
-	"github.com/bnagy/gootool/graph"
+	"github.com/bnagy/gootool/formatters"
 	"github.com/bnagy/gootool/symlist"
+	"github.com/bnagy/gootool/webapp"
 	"log"
-	"net/http"
 	"os"
 	"path"
-	"strings"
 )
 
-const N_SECT = uint8(0x0e)
-
 var outbuf = new(bytes.Buffer)
+var textMode = flag.Bool("t", false, "Text mode: dumps disassembly to stdout and exits")
 
 type disasmCB func(insn cs.Instruction) error
 
@@ -77,7 +74,8 @@ func main() {
 		fmt.Fprintf(
 			os.Stderr,
 			"Unable to open Mach-O binary \"%v\": %v\n"+
-				"Usage: %s [filename]\n",
+				"Usage: %s [mode] [filename]\n"+
+				"Modes: \n\t-t: Text mode\n\tdefault: webapp mode\n",
 			flag.Arg(0),
 			err,
 			path.Base(os.Args[0]),
@@ -119,54 +117,34 @@ func main() {
 		log.Println("Linking graph nodes...")
 		g.LinkNodes()
 
-		// for e := sdb.Front(); e != nil; e = e.Next() {
+		if *textMode {
+			for e := sdb.Front(); e != nil; e = e.Next() {
 
-		// 	sym := e.Value.(symlist.SymEntry)
-		// 	if sym.IsStub() {
-		// 		continue
-		// 	}
-
-		// 	bbl, ok := g.Graph[uint(sym.Value)]
-		// 	if !ok {
-		// 		log.Printf("Missing node for sym %v %v", sym.Name, sym.Value)
-		// 		continue
-		// 	}
-
-		// 	outbuf.Reset()
-		// 	formatters.DumpBBL(bbl, sdb, outbuf)
-		// 	fmt.Print(outbuf.String())
-		// 	for _, insn := range bbl.Insns {
-		// 		outbuf.Reset()
-		// 		formatters.DumpInsn(insn, sdb, outbuf)
-		// 		fmt.Printf("\t%s\n", outbuf.String())
-		// 	}
-		// }
-
-		pageBytes, err := graph.RenderFuncGraph(g)
-		if err == nil {
-
-			http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-				w.Header().Set("Content-Type", "image/svg+xml")
-				w.Write(pageBytes)
-			})
-
-			http.HandleFunc("/func/", func(w http.ResponseWriter, r *http.Request) {
-				if m, ok := g.SDB.Name(r.RequestURI[strings.LastIndex(r.RequestURI, "/")+1:]); ok {
-					w.Header().Set("Content-Type", "image/svg+xml")
-					page, _ := graph.RenderGraph(m, g)
-					w.Write(page)
+				sym := e.Value.(symlist.SymEntry)
+				if sym.IsStub() {
+					continue
 				}
-			})
 
-			http.HandleFunc("/pug.jpg", func(w http.ResponseWriter, r *http.Request) {
-				http.ServeFile(w, r, "pug.jpg")
-			})
+				bbl, ok := g.Graph[uint(sym.Value)]
+				if !ok {
+					log.Printf("Missing node for sym %v %v", sym.Name, sym.Value)
+					continue
+				}
 
-			log.Fatal(http.ListenAndServe(":8080", nil))
-
-		} else {
-			log.Fatal(err)
+				outbuf.Reset()
+				formatters.DumpBBL(bbl, sdb, outbuf)
+				fmt.Print(outbuf.String())
+				for _, insn := range bbl.Insns {
+					outbuf.Reset()
+					formatters.DumpInsn(insn, sdb, outbuf)
+					fmt.Printf("\t%s\n", outbuf.String())
+				}
+			}
+			return
 		}
+
+		log.Println("Rendering function graph, which shells out to dot. This may take a while...")
+		log.Fatal(webapp.Serve(g))
 
 	}
 

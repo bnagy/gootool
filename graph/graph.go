@@ -12,7 +12,25 @@ import (
 	"strings"
 )
 
-func RenderGraph(sym symlist.SymEntry, g *cfg.CFG) ([]byte, error) {
+func render(in, out *bytes.Buffer) error {
+	cmd := exec.Command("dot", "-Tsvg")
+	cmd.Stdin = in
+	cmd.Stdout = out
+	if err := cmd.Run(); err != nil {
+		return err
+	}
+
+	p := out.Bytes()
+	if i := bytes.Index(p, []byte("<svg")); i < 0 {
+		return errors.New("<svg not found")
+	} else {
+		out.Reset()
+		out.Write(p[i:])
+	}
+	return nil
+}
+
+func RenderCFG(sym symlist.SymEntry, g *cfg.CFG) ([]byte, error) {
 
 	var in, out, tmp bytes.Buffer
 
@@ -37,7 +55,7 @@ func RenderGraph(sym symlist.SymEntry, g *cfg.CFG) ([]byte, error) {
 		fmt.Fprintf(
 			&in,
 			// \l is dot language for left justify
-			" \"0x%x\" [shape=box,fontname=menlo,label=\"%s\\l\"];\n",
+			" \"0x%x\" [shape=box,fontname=menlo,label=\"%s \\l\"];\n",
 			node.Addr,
 			strings.Join(label, "\\l"),
 		)
@@ -60,22 +78,10 @@ func RenderGraph(sym symlist.SymEntry, g *cfg.CFG) ([]byte, error) {
 		}
 
 	}
-
 	in.WriteString("}")
-	cmd := exec.Command("dot", "-Tsvg")
-	cmd.Stdin = &in
-	cmd.Stdout = &out
-	if err := cmd.Run(); err != nil {
-		return nil, err
-	}
 
-	p := out.Bytes()
-	if i := bytes.Index(p, []byte("<svg")); i < 0 {
-		return nil, errors.New("<svg not found")
-	} else {
-		p = p[i:]
-	}
-	return p, nil
+	err := render(&in, &out)
+	return out.Bytes(), err
 }
 
 func RenderFuncGraph(g *cfg.CFG) ([]byte, error) {
@@ -108,7 +114,6 @@ func RenderFuncGraph(g *cfg.CFG) ([]byte, error) {
 			// Ypos of the boxes
 			fmt.Fprintf(
 				&in,
-				// \l is dot language for left justify
 				" \"%s\" [shape=box,fillcolor=lightblue,style=filled,fontname=menlo,label=\"%s\",tooltip =\"%s calls -> %s\",URL=\"%s\"];\n",
 				sym.Name,
 				sym.Name,
@@ -119,12 +124,10 @@ func RenderFuncGraph(g *cfg.CFG) ([]byte, error) {
 		case symlist.Stub:
 			fmt.Fprintf(
 				&in,
-				// \l is dot language for left justify
-				" \"%s\" [shape=none,image=\"pug.jpg\",fontname=menlo,label=\"   %s\n\n\",tooltip =\"%s calls -> %s\"];\n",
+				// leet newline technique to better align the label in the furry pug belly
+				" \"%s\" [shape=none,image=\"pug.jpg\",fontname=menlo,label=\"   %s\n\n\"];\n",
 				sym.Name,
 				sym.Name,
-				sym.Name,
-				strings.Join(calls, " "),
 			)
 		}
 
@@ -154,21 +157,8 @@ func RenderFuncGraph(g *cfg.CFG) ([]byte, error) {
 		}
 
 	}
-
 	in.WriteString("}")
 
-	cmd := exec.Command("dot", "-Tsvg")
-	cmd.Stdin = &in
-	cmd.Stdout = &out
-	if err := cmd.Run(); err != nil {
-		return nil, err
-	}
-
-	p := out.Bytes()
-	if i := bytes.Index(p, []byte("<svg")); i < 0 {
-		return nil, errors.New("<svg not found")
-	} else {
-		p = p[i:]
-	}
-	return p, nil
+	err := render(&in, &out)
+	return out.Bytes(), err
 }
