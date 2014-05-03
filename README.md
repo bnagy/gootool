@@ -10,7 +10,7 @@ This is a toy, not a tool.
 TODO:
 =======
 
-Refactor, clean up, add text / web options, better error handling, add pug images to web output
+Refactor, clean up, add text / web options, better error handling, ~~add pug images to web output~~
 
 Screenshots
 =======
