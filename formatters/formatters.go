@@ -2,7 +2,7 @@ package formatters
 
 import (
 	"bytes"
-	"encoding/hex"
+	// "encoding/hex"
 	"fmt"
 	cs "github.com/bnagy/gapstone"
 	"github.com/bnagy/gootool/cfg"
@@ -14,9 +14,8 @@ func dumpResolvedImmediate(buf *bytes.Buffer, insn cs.Instruction, sym symlist.S
 	if off > 0 {
 		fmt.Fprintf(
 			buf,
-			"0x%x: %-24.24s %-12.12s%s+0x%x",
+			"0x%x: %-12.12s%s+0x%x",
 			insn.Address,
-			hex.EncodeToString(insn.Bytes),
 			insn.Mnemonic,
 			sym.Name,
 			off,
@@ -24,9 +23,8 @@ func dumpResolvedImmediate(buf *bytes.Buffer, insn cs.Instruction, sym symlist.S
 	} else {
 		fmt.Fprintf(
 			buf,
-			"0x%x: %-24.24s %-12.12s%s",
+			"0x%x: %-12.12s%s",
 			insn.Address,
-			hex.EncodeToString(insn.Bytes),
 			insn.Mnemonic,
 			sym.Name,
 		)
@@ -36,9 +34,8 @@ func dumpResolvedImmediate(buf *bytes.Buffer, insn cs.Instruction, sym symlist.S
 func dumpUnresolvedImmediate(buf *bytes.Buffer, insn cs.Instruction) {
 	fmt.Fprintf(
 		buf,
-		"0x%x: %-24.24s %-12.12s%s [ ??? ]",
+		"0x%x: %-12.12s%s [ ??? ]",
 		insn.Address,
-		hex.EncodeToString(insn.Bytes),
 		insn.Mnemonic,
 		insn.OpStr,
 	)
@@ -47,9 +44,8 @@ func dumpUnresolvedImmediate(buf *bytes.Buffer, insn cs.Instruction) {
 func dumpDefault(buf *bytes.Buffer, insn cs.Instruction) {
 	fmt.Fprintf(
 		buf,
-		"0x%x: %-24.24s %-12.12s%s",
+		"0x%x: %-12.12s%s",
 		insn.Address,
-		hex.EncodeToString(insn.Bytes),
 		insn.Mnemonic,
 		insn.OpStr,
 	)

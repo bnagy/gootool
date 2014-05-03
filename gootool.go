@@ -7,12 +7,14 @@ import (
 	"fmt"
 	cs "github.com/bnagy/gapstone"
 	"github.com/bnagy/gootool/cfg"
-	"github.com/bnagy/gootool/formatters"
+	// "github.com/bnagy/gootool/formatters"
 	"github.com/bnagy/gootool/graph"
 	"github.com/bnagy/gootool/symlist"
 	"log"
+	"net/http"
 	"os"
 	"path"
+	"strings"
 )
 
 const N_SECT = uint8(0x0e)
@@ -38,7 +40,10 @@ disasm:
 			cursor+base,   // starting address
 			0,             // insns to disassemble, 0 for all
 		)
-		cursor = uint64(insns[len(insns)-1].Address) - base
+
+		if len(insns) > 0 {
+			cursor = uint64(insns[len(insns)-1].Address) - base
+		}
 
 		for _, insn := range insns {
 			callback(insn)
@@ -114,61 +119,49 @@ func main() {
 		log.Println("Linking graph nodes...")
 		g.LinkNodes()
 
-		for e := sdb.Front(); e != nil; e = e.Next() {
+		// for e := sdb.Front(); e != nil; e = e.Next() {
 
-			sym := e.Value.(symlist.SymEntry)
-			if sym.IsStub() {
-				continue
-			}
+		// 	sym := e.Value.(symlist.SymEntry)
+		// 	if sym.IsStub() {
+		// 		continue
+		// 	}
 
-			bbl, ok := g.Graph[uint(sym.Value)]
-			if !ok {
-				log.Printf("Missing node for sym %v %v", sym.Name, sym.Value)
-				continue
-			}
+		// 	bbl, ok := g.Graph[uint(sym.Value)]
+		// 	if !ok {
+		// 		log.Printf("Missing node for sym %v %v", sym.Name, sym.Value)
+		// 		continue
+		// 	}
 
-			outbuf.Reset()
-			formatters.DumpBBL(bbl, sdb, outbuf)
-			fmt.Print(outbuf.String())
-			for _, insn := range bbl.Insns {
-				outbuf.Reset()
-				formatters.DumpInsn(insn, sdb, outbuf)
-				fmt.Printf("\t%s\n", outbuf.String())
-			}
-		}
+		// 	outbuf.Reset()
+		// 	formatters.DumpBBL(bbl, sdb, outbuf)
+		// 	fmt.Print(outbuf.String())
+		// 	for _, insn := range bbl.Insns {
+		// 		outbuf.Reset()
+		// 		formatters.DumpInsn(insn, sdb, outbuf)
+		// 		fmt.Printf("\t%s\n", outbuf.String())
+		// 	}
+		// }
 
-		if m, ok := sdb.Name("_make_conn"); ok {
-			log.Printf("Crawling %s", m.Name)
-			funcs := make(map[string]bool)
-			for bbl := range g.CrawlFrom(m) {
+		pageBytes, err := graph.RenderFuncGraph(g)
+		if err == nil {
 
-				outbuf.Reset()
-				formatters.DumpBBL(&bbl, sdb, outbuf)
-				fmt.Print(outbuf.String())
+			http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "image/svg+xml")
+				w.Write(pageBytes)
+			})
 
-				for _, insn := range bbl.Insns {
-					outbuf.Reset()
-					formatters.DumpInsn(insn, sdb, outbuf)
-					fmt.Printf("\t%s\n", outbuf.String())
+			http.HandleFunc("/func/", func(w http.ResponseWriter, r *http.Request) {
+				if m, ok := g.SDB.Name(r.RequestURI[strings.LastIndex(r.RequestURI, "/")+1:]); ok {
+					w.Header().Set("Content-Type", "image/svg+xml")
+					page, _ := graph.RenderGraph(m, g)
+					w.Write(page)
 				}
+			})
 
-				for addr := range bbl.Calls {
-					sym, ok := sdb.At(addr)
-					if ok {
-						funcs[sym.Name] = true
-					}
-				}
-			}
-			fmt.Printf("\nALL %s calls => [", m.Name)
-			for fn := range funcs {
-				fmt.Printf(" %v ", fn)
-			}
-			fmt.Printf(" ]\n")
-			pageBytes, err := graph.RenderGraph(m, g, sdb)
-			if err == nil {
-				fmt.Print(string(pageBytes))
-			}
+			log.Fatal(http.ListenAndServe(":8080", nil))
 
+		} else {
+			log.Fatal(err)
 		}
 
 	}

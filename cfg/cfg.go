@@ -26,6 +26,7 @@ type Edge struct {
 // exits iff they end with ret. Calls doesn't use *BBL because they can be
 // stubs, for which no BBL exists
 type BBL struct {
+	Addr     uint
 	Symbol   symlist.SymEntry // symbol for the head insn
 	Calls    map[uint]bool    // calls to other funcs ( don't break blocks )
 	Edges    []Edge
@@ -34,9 +35,10 @@ type BBL struct {
 	CrawlTag *uint32          // Needed by concurrent crawlers
 }
 
-func NewBBL() *BBL {
+func NewBBL(addr uint) *BBL {
 	tag := uint32(0)
 	return &BBL{
+		Addr:     addr,
 		Calls:    make(map[uint]bool),
 		Edges:    make([]Edge, 0),
 		Insns:    make([]cs.Instruction, 0),
@@ -45,15 +47,16 @@ func NewBBL() *BBL {
 	}
 }
 
+// sort.Sort interface impl
 type ByAddr []BBL
 
 func (a ByAddr) Len() int           { return len(a) }
 func (a ByAddr) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
-func (a ByAddr) Less(i, j int) bool { return a[i].Symbol.Value < a[j].Symbol.Value }
+func (a ByAddr) Less(i, j int) bool { return a[i].Addr < a[j].Addr }
 
 type CFG struct {
 	Graph         map[uint]*BBL
-	sdb           *symlist.SymList
+	SDB           *symlist.SymList
 	thisBBL       *BBL // little state vars to make the building easier
 	gatheringTail bool
 }
@@ -61,7 +64,7 @@ type CFG struct {
 func NewCFG(sdb *symlist.SymList) *CFG {
 	return &CFG{
 		Graph: make(map[uint]*BBL),
-		sdb:   sdb,
+		SDB:   sdb,
 	}
 }
 
@@ -70,9 +73,9 @@ func (cfg *CFG) BuildNodes(insn cs.Instruction) error {
 
 	// First pass, just fill in the instructions and add the nodes to the map
 
-	if _, ok := cfg.sdb.At(insn.Address); ok { // starting new BBL
-		sym, _, _ := cfg.sdb.Near(insn.Address)
-		cfg.thisBBL = NewBBL()
+	if _, ok := cfg.SDB.At(insn.Address); ok { // starting new BBL
+		sym, _, _ := cfg.SDB.Near(insn.Address)
+		cfg.thisBBL = NewBBL(insn.Address)
 		cfg.thisBBL.Symbol = sym
 		cfg.Graph[insn.Address] = cfg.thisBBL
 		cfg.gatheringTail = false
@@ -99,7 +102,7 @@ func (cfg *CFG) BuildNodes(insn cs.Instruction) error {
 func (cfg *CFG) linkBBLToAddr(bbl *BBL, et EdgeType, dest uint) bool {
 
 	// No symbol, no link
-	if _, exists := cfg.sdb.At(dest); !exists {
+	if _, exists := cfg.SDB.At(dest); !exists {
 		return false
 	}
 
@@ -124,7 +127,7 @@ func (cfg *CFG) LinkNodes() {
 			// CALL - add a call
 			if util.IsCallImm(insn) {
 				imm := uint(insn.X86.Operands[0].Imm)
-				if _, exists := cfg.sdb.At(imm); exists {
+				if _, exists := cfg.SDB.At(imm); exists {
 					bbl.Calls[imm] = true
 				}
 			}
@@ -146,7 +149,7 @@ func (cfg *CFG) LinkNodes() {
 				fallTo = uint64(lastInsn.Address + lastInsn.Size)
 			}
 
-			if cfg.sdb.InText(fallTo) {
+			if cfg.SDB.InText(fallTo) {
 				cfg.linkBBLToAddr(bbl, FalseEdge, uint(fallTo))
 			}
 
@@ -175,7 +178,7 @@ func (cfg *CFG) LinkNodes() {
 			fallTo = uint64(lastInsn.Address + lastInsn.Size)
 		}
 
-		if cfg.sdb.InText(fallTo) {
+		if cfg.SDB.InText(fallTo) {
 			cfg.linkBBLToAddr(bbl, AlwaysEdge, uint(fallTo))
 		}
 	}
@@ -187,7 +190,7 @@ func (cfg *CFG) LinkNodes() {
 func (g *CFG) consolidateCalls() {
 	// Crawl the BBLs that are reachable from each function head and add their
 	// calls to the map of the head BBL
-	for e := g.sdb.Front(); e != nil; e = e.Next() {
+	for e := g.SDB.Front(); e != nil; e = e.Next() {
 
 		if sym := e.Value.(symlist.SymEntry); sym.IsFunc() {
 
@@ -198,7 +201,7 @@ func (g *CFG) consolidateCalls() {
 
 			for node := range g.CrawlFrom(sym) {
 				for addr := range node.Calls {
-					if _, ok := g.sdb.At(addr); ok {
+					if _, ok := g.SDB.At(addr); ok {
 						bbl.Calls[addr] = true
 					}
 				}
