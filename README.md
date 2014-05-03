@@ -12,7 +12,7 @@ TODO:
 
 Graph transforms and http server
 
-Screenshot
+Screenshots
 =======
 
 ```
@@ -52,6 +52,15 @@ loc_0x10000d64f Len: 4 Tail: 1 Edges:  [terminal]
 	0x10000d657: 5d                       pop         rbp
 	0x10000d658: c3                       ret
 ```
+
+Web Interface, Function Graph
+----
+![Alt text](/screen1.png?raw=true "Functions")
+
+Web Interface, Function BBL Graph
+----
+![Alt text](/screen2.png?raw=true "BBLs")
+
 
 BUGS
 =======
