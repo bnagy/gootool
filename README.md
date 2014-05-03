@@ -10,11 +10,13 @@ This is a toy, not a tool.
 TODO:
 =======
 
-Graph transforms and http server
+Refactor, clean up, add text / web options, better error handling, add pug images to web output
 
 Screenshots
 =======
 
+Text Mode
+----
 ```
 (0x10000d5d0): _zalloc Len: 9 Tail: 0 Edges:  T: loc_0x10000d64f F: loc_0x10000d5f6 Calls ==> [ STUB_malloc  ___inline_memset_chk  STUB___memset_chk ]
 	0x10000d5d0: 55                       push        rbp
