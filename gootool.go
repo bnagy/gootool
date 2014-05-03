@@ -158,6 +158,10 @@ func main() {
 				}
 			})
 
+			http.HandleFunc("/pug.jpg", func(w http.ResponseWriter, r *http.Request) {
+				http.ServeFile(w, r, "pug.jpg")
+			})
+
 			log.Fatal(http.ListenAndServe(":8080", nil))
 
 		} else {

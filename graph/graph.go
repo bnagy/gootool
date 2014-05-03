@@ -120,7 +120,7 @@ func RenderFuncGraph(g *cfg.CFG) ([]byte, error) {
 			fmt.Fprintf(
 				&in,
 				// \l is dot language for left justify
-				" \"%s\" [shape=box,fillcolor=lightgrey,style=filled,fontname=menlo,label=\"%s\",tooltip =\"%s calls -> %s\"];\n",
+				" \"%s\" [shape=none,image=\"pug.jpg\",fontname=menlo,label=\"   %s\n\n\",tooltip =\"%s calls -> %s\"];\n",
 				sym.Name,
 				sym.Name,
 				sym.Name,
