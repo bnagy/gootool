@@ -10,6 +10,13 @@ import (
 	"github.com/bnagy/gootool/util"
 )
 
+func cstring(b []byte) string {
+	var i int
+	for i = 0; i < len(b) && b[i] != 0; i++ {
+	}
+	return string(b[0:i])
+}
+
 func dumpResolvedImmediate(buf *bytes.Buffer, insn cs.Instruction, sym symlist.SymEntry, off int) {
 	if off > 0 {
 		fmt.Fprintf(
@@ -51,6 +58,10 @@ func dumpDefault(buf *bytes.Buffer, insn cs.Instruction) {
 	)
 }
 
+func dumpCstringRef(buf *bytes.Buffer, insn cs.Instruction) {
+
+}
+
 func DumpInsn(insn cs.Instruction, sdb *symlist.SymList, outbuf *bytes.Buffer) {
 
 	// Try to symbolically resolve any jmp/call with an immediate operand
@@ -66,6 +77,19 @@ func DumpInsn(insn cs.Instruction, sdb *symlist.SymList, outbuf *bytes.Buffer) {
 	} else {
 
 		dumpDefault(outbuf, insn)
+
+		for _, op := range insn.X86.Operands {
+			// If the instruction has a memory operand that's relative to rip
+			if op.Type == cs.X86_OP_MEM && op.Mem.Base == cs.X86_REG_RIP {
+				target := uint64(op.Mem.Disp + int64(insn.Address+insn.Size))
+				// And that target is within the _cstrings section
+				if sdb.CStrings.Base < target && target < sdb.CStrings.Base+sdb.CStrings.Size {
+					// Look it up by offset and add the string as a comment
+					fmt.Fprintf(outbuf, " ; %s", cstring(sdb.CStrings.Raw[target-sdb.CStrings.Base:]))
+				}
+			}
+		}
+
 	}
 
 }

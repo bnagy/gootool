@@ -11,12 +11,13 @@ import (
 )
 
 // https://developer.apple.com/library/mac/documentation/DeveloperTools/Conceptual/MachORuntime/Reference/reference.html#//apple_ref/doc/uid/20001298-BAJFFCGF
-// N_SECT (0xe)—The symbol is defined in the section number given in n_sect.
-// ( if this bit is set in the type byte, it means the n_value will be an address )
-const N_SECT = uint8(0x0e)
-const REFERENCED_DYNAMICALLY = uint16(0x0010)
-const S_SYMBOL_STUBS = uint32(0x08)
-const S_LAZY_SYMBOL_POINTERS = uint32(0x07)
+const (
+	N_SECT                 = uint8(0x0e)
+	REFERENCED_DYNAMICALLY = uint16(0x0010)
+	S_SYMBOL_STUBS         = uint32(0x08)
+	S_LAZY_SYMBOL_POINTERS = uint32(0x07)
+	S_CSTRING_LITERALS     = uint32(0x02)
+)
 
 type SymType uint8
 
@@ -31,12 +32,19 @@ type SymEntry struct {
 	macho.Symbol
 }
 
+type CString struct {
+	Base uint64
+	Size uint64
+	Raw  []byte
+}
+
 func (se *SymEntry) IsBBL() bool  { return se.Type == BBL }
 func (se *SymEntry) IsFunc() bool { return se.Type == Func }
 func (se *SymEntry) IsStub() bool { return se.Type == Stub }
 
 type SymList struct {
 	*list.List
+	CStrings CString
 	db       map[uint]SymEntry
 	TextBase uint64
 	TextSize uint64
@@ -182,10 +190,25 @@ func (sl *SymList) InText(addr uint64) bool {
 	return addr >= sl.TextBase && addr < sl.TextBase+sl.TextSize
 }
 
+func secByFlag(mo *macho.File, flag uint32) (*macho.Section, error) {
+	var sec *macho.Section
+	for _, s := range mo.Sections {
+		if s.Flags&flag == flag {
+			sec = s
+			break
+		}
+	}
+	if sec == nil {
+		return sec, fmt.Errorf("Symbol stubs couldn't be parsed, dynamic symbols not marked.")
+	}
+	return sec, nil
+}
+
 func NewSymList(mo *macho.File) (*SymList, error) {
 
 	sl := &SymList{
 		list.New(),
+		CString{},
 		make(map[uint]SymEntry),
 		0,
 		0,
@@ -224,6 +247,16 @@ func NewSymList(mo *macho.File) (*SymList, error) {
 		)
 	}
 
+	cs, err := secByFlag(mo, S_CSTRING_LITERALS)
+	if err == nil {
+		raw, _ := cs.Data()
+		sl.CStrings = CString{
+			Base: cs.Addr,
+			Size: cs.Size,
+			Raw:  raw,
+		}
+	}
+
 	if len(mo.Dysymtab.IndirectSyms) == 0 {
 		// No dynamic symbols, nothing more to do.
 		return sl, nil
@@ -233,15 +266,9 @@ func NewSymList(mo *macho.File) (*SymList, error) {
 	// seem to have all kinds of names ( __stubs, __symbol_stub,
 	// __symbol_stub1...)
 	// TODO: Could there be more than one stub section? :/
-	var stubs *macho.Section
-	for _, sec := range mo.Sections {
-		if sec.Flags&S_SYMBOL_STUBS == S_SYMBOL_STUBS {
-			stubs = sec
-			break
-		}
-	}
-	if stubs == nil {
-		return sl, fmt.Errorf("Symbol stubs couldn't be parsed, dynamic symbols not marked.")
+	stubs, err := secByFlag(mo, S_SYMBOL_STUBS)
+	if err != nil {
+		return sl, err
 	}
 
 	stubBase := stubs.Addr
@@ -250,15 +277,9 @@ func NewSymList(mo *macho.File) (*SymList, error) {
 		return sl, fmt.Errorf("Symbol stubs couldn't be parsed, dynamic symbols not marked.")
 	}
 
-	var lsp *macho.Section
-	for _, sec := range mo.Sections {
-		if sec.Flags&S_LAZY_SYMBOL_POINTERS == S_LAZY_SYMBOL_POINTERS {
-			lsp = sec
-			break
-		}
-	}
-	if lsp == nil {
-		return sl, fmt.Errorf("Symbol stubs couldn't be parsed, dynamic symbols not marked.")
+	lsp, err := secByFlag(mo, S_LAZY_SYMBOL_POINTERS)
+	if err != nil {
+		return sl, err
 	}
 
 	for i, dsIdx := range mo.Dysymtab.IndirectSyms {
