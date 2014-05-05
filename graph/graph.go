@@ -21,21 +21,23 @@ func render(in, out *bytes.Buffer) error {
 	}
 
 	p := out.Bytes()
-	if i := bytes.Index(p, []byte("<svg")); i < 0 {
-		return errors.New("<svg not found")
-	} else {
+	if i := bytes.Index(p, []byte("<svg")); i >= 0 {
 		out.Reset()
 		out.Write(p[i:])
+		return nil
 	}
-	return nil
+	return errors.New("<svg not found")
+
 }
 
+// RenderCFG shells out to dot to render the BBL graph
 func RenderCFG(sym symlist.SymEntry, g *cfg.CFG) ([]byte, error) {
 
 	var in, out, tmp bytes.Buffer
 
 	fmt.Fprintf(&in, "digraph %s { \nsplines=\"ortho\"\n", sym.Name)
-	nodes := make([]cfg.BBL, 0)
+
+	var nodes []cfg.Node
 	for node := range g.CrawlFrom(sym) {
 		nodes = append(nodes, node)
 	}
@@ -45,7 +47,7 @@ func RenderCFG(sym symlist.SymEntry, g *cfg.CFG) ([]byte, error) {
 
 		// Dump all the nodes first, that seems to determine the rankings /
 		// Ypos of the boxes
-		label := make([]string, 0)
+		var label []string
 		for _, insn := range node.Insns {
 			tmp.Reset()
 			formatters.DumpInsn(insn, g.SDB, &tmp)
@@ -84,6 +86,7 @@ func RenderCFG(sym symlist.SymEntry, g *cfg.CFG) ([]byte, error) {
 	return out.Bytes(), err
 }
 
+// RenderFuncGraph shells out to dot to render the initial function graph
 func RenderFuncGraph(g *cfg.CFG) ([]byte, error) {
 
 	var in, out bytes.Buffer
@@ -97,7 +100,7 @@ func RenderFuncGraph(g *cfg.CFG) ([]byte, error) {
 			continue
 		}
 
-		calls := make([]string, 0)
+		var calls []string
 		if bbl, ok := g.Graph[uint(sym.Value)]; ok {
 			for call := range bbl.Calls {
 				if target, ok := g.SDB.At(call); ok {

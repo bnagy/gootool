@@ -9,23 +9,27 @@ import (
 	"sync/atomic"
 )
 
+// EdgeType is mainly for pretty rendering
 type EdgeType uint8
 
+// Available EdgeTypes
 const (
 	FalseEdge  EdgeType = 0
 	TrueEdge   EdgeType = 1
 	AlwaysEdge EdgeType = 2
 )
 
+// Edge links two Nodes
 type Edge struct {
-	Target *BBL
+	Target *Node
 	Type   EdgeType
 }
 
-// Basic blocks are expected to have 1 Edge, 1 TrueEdge + 1 FalseEdge or no
-// exits iff they end with ret. Calls doesn't use *BBL because they can be
-// stubs, for which no BBL exists
-type BBL struct {
+// Node is the fundamental graph element. Nodes are expected to have 1 Edge, 1
+// TrueEdge + 1 FalseEdge or no exits iff they end with ret OR they end with a
+// call to a stub. The Calls member doesn't use *Node because they can be
+// stubs, for which no Node exists
+type Node struct {
 	Addr     uint
 	Symbol   symlist.SymEntry // symbol for the head insn
 	Calls    map[uint]bool    // calls to other funcs ( don't break blocks )
@@ -35,9 +39,10 @@ type BBL struct {
 	CrawlTag *uint32          // Needed by concurrent crawlers
 }
 
-func NewBBL(addr uint) *BBL {
+// NewNode initializes a Node
+func NewNode(addr uint) *Node {
 	tag := uint32(0)
-	return &BBL{
+	return &Node{
 		Addr:     addr,
 		Calls:    make(map[uint]bool),
 		Edges:    make([]Edge, 0),
@@ -47,66 +52,69 @@ func NewBBL(addr uint) *BBL {
 	}
 }
 
-// sort.Sort interface impl
-type ByAddr []BBL
+// ByAddr is an interface for sort.Sort
+type ByAddr []Node
 
 func (a ByAddr) Len() int           { return len(a) }
 func (a ByAddr) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
 func (a ByAddr) Less(i, j int) bool { return a[i].Addr < a[j].Addr }
 
+// CFG is the combination of a Graph and a symbol DB
 type CFG struct {
-	Graph         map[uint]*BBL
+	Graph         map[uint]*Node
 	SDB           *symlist.SymList
-	thisBBL       *BBL // little state vars to make the building easier
+	thisNode      *Node // little state vars to make the building easier
 	gatheringTail bool
 }
 
+// NewCFG initializes a new CFG
 func NewCFG(sdb *symlist.SymList) *CFG {
 	return &CFG{
-		Graph: make(map[uint]*BBL),
+		Graph: make(map[uint]*Node),
 		SDB:   sdb,
 	}
 }
 
-// Follows the type signature for a disasmCB in gootool.go
+// BuildNodes follows the type signature for a disasmCB in gootool.go. It only
+// tries to create the Nodes for the graph, Edges are added in later steps.
 func (cfg *CFG) BuildNodes(insn cs.Instruction) error {
 
 	// First pass, just fill in the instructions and add the nodes to the map
 
-	if _, ok := cfg.SDB.At(insn.Address); ok { // starting new BBL
+	if _, ok := cfg.SDB.At(insn.Address); ok { // starting new Node
 		sym, _, _ := cfg.SDB.Near(insn.Address)
-		cfg.thisBBL = NewBBL(insn.Address)
-		cfg.thisBBL.Symbol = sym
-		cfg.Graph[insn.Address] = cfg.thisBBL
+		cfg.thisNode = NewNode(insn.Address)
+		cfg.thisNode.Symbol = sym
+		cfg.Graph[insn.Address] = cfg.thisNode
 		cfg.gatheringTail = false
 	}
 
 	// Suppress nop stuff after a ret insn
 	if insn.Id == cs.X86_INS_RET {
 		cfg.gatheringTail = true
-		cfg.thisBBL.Insns = append(cfg.thisBBL.Insns, insn)
+		cfg.thisNode.Insns = append(cfg.thisNode.Insns, insn)
 		return nil
 	}
 
 	if insn.Id == cs.X86_INS_NOP && cfg.gatheringTail {
-		cfg.thisBBL.Tail = append(cfg.thisBBL.Tail, insn)
+		cfg.thisNode.Tail = append(cfg.thisNode.Tail, insn)
 	} else {
 		cfg.gatheringTail = false
-		cfg.thisBBL.Insns = append(cfg.thisBBL.Insns, insn)
+		cfg.thisNode.Insns = append(cfg.thisNode.Insns, insn)
 	}
 
 	return nil
 
 }
 
-func (cfg *CFG) linkBBLToAddr(bbl *BBL, et EdgeType, dest uint) bool {
+func (cfg *CFG) linkNodeToAddr(bbl *Node, et EdgeType, dest uint) bool {
 
 	// No symbol, no link
 	if _, exists := cfg.SDB.At(dest); !exists {
 		return false
 	}
 
-	// No destination BBL, no link
+	// No destination Node, no link
 	if target, exists := cfg.Graph[dest]; exists {
 		bbl.Edges = append(bbl.Edges, Edge{Target: target, Type: et})
 		return true
@@ -116,8 +124,8 @@ func (cfg *CFG) linkBBLToAddr(bbl *BBL, et EdgeType, dest uint) bool {
 
 }
 
-// Call this once the CFG has been constructed, to perform second+ pass
-// analysis and fixups etc.
+// LinkNodes must be called once the CFG has been constructed, to
+// perform second+ pass analysis and fixups etc.
 func (cfg *CFG) LinkNodes() {
 
 	// Second pass - link the Nodes
@@ -139,7 +147,7 @@ func (cfg *CFG) LinkNodes() {
 		if util.IsBranchImm(lastInsn) {
 
 			imm := uint(lastInsn.X86.Operands[0].Imm)
-			cfg.linkBBLToAddr(bbl, TrueEdge, imm)
+			cfg.linkNodeToAddr(bbl, TrueEdge, imm)
 
 			var fallTo uint64
 			if len(bbl.Tail) > 0 {
@@ -150,7 +158,7 @@ func (cfg *CFG) LinkNodes() {
 			}
 
 			if cfg.SDB.InText(fallTo) {
-				cfg.linkBBLToAddr(bbl, FalseEdge, uint(fallTo))
+				cfg.linkNodeToAddr(bbl, FalseEdge, uint(fallTo))
 			}
 
 			continue
@@ -160,7 +168,7 @@ func (cfg *CFG) LinkNodes() {
 		// Unconditional jmp. Add single edge to that Imm.
 		if util.IsUncondImm(lastInsn) {
 			imm := uint(lastInsn.X86.Operands[0].Imm)
-			cfg.linkBBLToAddr(bbl, AlwaysEdge, imm)
+			cfg.linkNodeToAddr(bbl, AlwaysEdge, imm)
 			continue
 		}
 
@@ -169,7 +177,7 @@ func (cfg *CFG) LinkNodes() {
 			continue
 		}
 
-		// Everything else - add a fallthrough edge to the next BBL
+		// Everything else - add a fallthrough edge to the next Node
 		var fallTo uint64
 		if len(bbl.Tail) > 0 {
 			tail := bbl.Tail[len(bbl.Tail)-1]
@@ -179,7 +187,7 @@ func (cfg *CFG) LinkNodes() {
 		}
 
 		if cfg.SDB.InText(fallTo) {
-			cfg.linkBBLToAddr(bbl, AlwaysEdge, uint(fallTo))
+			cfg.linkNodeToAddr(bbl, AlwaysEdge, uint(fallTo))
 		}
 	}
 
@@ -187,21 +195,21 @@ func (cfg *CFG) LinkNodes() {
 
 }
 
-func (g *CFG) consolidateCalls() {
-	// Crawl the BBLs that are reachable from each function head and add their
-	// calls to the map of the head BBL
-	for e := g.SDB.Front(); e != nil; e = e.Next() {
+func (cfg *CFG) consolidateCalls() {
+	// Crawl the Nodes that are reachable from each function head and add their
+	// calls to the map of the head Node
+	for e := cfg.SDB.Front(); e != nil; e = e.Next() {
 
 		if sym := e.Value.(symlist.SymEntry); sym.IsFunc() {
 
-			bbl, ok := g.Graph[uint(sym.Value)]
+			bbl, ok := cfg.Graph[uint(sym.Value)]
 			if !ok {
 				continue
 			}
 
-			for node := range g.CrawlFrom(sym) {
+			for node := range cfg.CrawlFrom(sym) {
 				for addr := range node.Calls {
-					if _, ok := g.SDB.At(addr); ok {
+					if _, ok := cfg.SDB.At(addr); ok {
 						bbl.Calls[addr] = true
 					}
 				}
@@ -211,11 +219,11 @@ func (g *CFG) consolidateCalls() {
 	}
 }
 
-func (g *CFG) crawl(bbl BBL, tag uint32, results chan<- BBL, wg *sync.WaitGroup) {
+func (cfg *CFG) crawl(bbl Node, tag uint32, results chan<- Node, wg *sync.WaitGroup) {
 
 	for {
 
-		// Atomically increment the BBL tag
+		// Atomically increment the Node tag
 		swapped := atomic.CompareAndSwapUint32(bbl.CrawlTag, tag, tag+1)
 		if !swapped {
 			// Another crawler beat us here. Die.
@@ -241,26 +249,28 @@ func (g *CFG) crawl(bbl BBL, tag uint32, results chan<- BBL, wg *sync.WaitGroup)
 		case 2:
 			// Spin up another crawler to handle the second edge
 			wg.Add(1)
-			go g.crawl(*bbl.Edges[1].Target, tag, results, wg)
+			go cfg.crawl(*bbl.Edges[1].Target, tag, results, wg)
 			// This crawler follows the first
 			bbl = *bbl.Edges[0].Target
 		default:
-			log.Panicf("Too many edges for BBL: %v", bbl)
+			log.Panicf("Too many edges for Node: %v", bbl)
 		}
 
 	}
 
 }
 
-func (g *CFG) CrawlFrom(sym symlist.SymEntry) <-chan BBL {
+// CrawlFrom will concurrently crawl all reachable Nodes from a given symbol
+// and return them on a channel.
+func (cfg *CFG) CrawlFrom(sym symlist.SymEntry) <-chan Node {
 
-	results := make(chan BBL)
+	results := make(chan Node)
 	wg := &sync.WaitGroup{}
-	if bbl, exists := g.Graph[uint(sym.Value)]; exists {
+	if bbl, exists := cfg.Graph[uint(sym.Value)]; exists {
 		tag := *bbl.CrawlTag
 		go func() {
 			wg.Add(1)
-			go g.crawl(*bbl, tag, results, wg)
+			go cfg.crawl(*bbl, tag, results, wg)
 			wg.Wait()
 			close(results)
 		}()

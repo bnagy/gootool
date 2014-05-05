@@ -7,9 +7,13 @@ import (
 	"strings"
 )
 
-func Serve(g *cfg.CFG) error {
+// Serve the webapp for a given CFG. Initial page is a function graph,
+// clicking non-stub nodes will link to a BBL-based disassembly of that
+// function.
+func Serve(cfg *cfg.CFG) error {
 
-	if pageBytes, err := graph.RenderFuncGraph(g); err == nil {
+	pageBytes, err := graph.RenderFuncGraph(cfg)
+	if err == nil {
 
 		// Render the full function graph on /
 		http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -19,9 +23,9 @@ func Serve(g *cfg.CFG) error {
 
 		// Clicks on Func nodes link to /func/<symbol>
 		http.HandleFunc("/func/", func(w http.ResponseWriter, r *http.Request) {
-			if m, ok := g.SDB.Name(r.RequestURI[strings.LastIndex(r.RequestURI, "/")+1:]); ok {
+			if m, ok := cfg.SDB.Name(r.RequestURI[strings.LastIndex(r.RequestURI, "/")+1:]); ok {
 				w.Header().Set("Content-Type", "image/svg+xml")
-				page, _ := graph.RenderCFG(m, g)
+				page, _ := graph.RenderCFG(m, cfg)
 				w.Write(page)
 			}
 		})
@@ -33,7 +37,6 @@ func Serve(g *cfg.CFG) error {
 
 		return http.ListenAndServe(":8080", nil)
 
-	} else {
-		return err
 	}
+	return err
 }

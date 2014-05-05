@@ -4,6 +4,7 @@ import (
 	cs "github.com/bnagy/gapstone"
 )
 
+// InGroup - bool, is the instruction in a given capstone group (as a uint)
 func InGroup(insn cs.Instruction, grp uint) bool {
 	for _, g := range insn.Groups {
 		if g == grp {
@@ -13,7 +14,7 @@ func InGroup(insn cs.Instruction, grp uint) bool {
 	return false
 }
 
-// Conditional JMP to an immediate
+// IsBranchImm - bool, is it a conditional JMP to an immediate
 func IsBranchImm(insn cs.Instruction) bool {
 	if InGroup(insn, cs.X86_GRP_JUMP) && insn.Id != cs.X86_INS_JMP {
 		if insn.X86.Operands[0].Type == cs.X86_OP_IMM {
@@ -23,7 +24,7 @@ func IsBranchImm(insn cs.Instruction) bool {
 	return false
 }
 
-// Unconditional JMP to an immediate ( JMP / LONGJMP )
+// IsUncondImm - bool, is it an unconditional JMP to an immediate ( JMP / LONGJMP )
 func IsUncondImm(insn cs.Instruction) bool {
 	if insn.Id == cs.X86_INS_JMP && insn.X86.Operands[0].Type == cs.X86_OP_IMM {
 		return true
@@ -31,7 +32,7 @@ func IsUncondImm(insn cs.Instruction) bool {
 	return false
 }
 
-// Any JMP to an immediate
+// IsJmpImm - bool, is it any JMP to an immediate ( conditional or not )
 func IsJmpImm(insn cs.Instruction) bool {
 	if InGroup(insn, cs.X86_GRP_JUMP) && insn.X86.Operands[0].Type == cs.X86_OP_IMM {
 		return true
@@ -39,7 +40,7 @@ func IsJmpImm(insn cs.Instruction) bool {
 	return false
 }
 
-// CALL of an immediate
+// IsCallImm - bool, is it a CALL of an immediate
 func IsCallImm(insn cs.Instruction) bool {
 	if insn.Id == cs.X86_INS_CALL && insn.X86.Operands[0].Type == cs.X86_OP_IMM {
 		return true
@@ -47,7 +48,7 @@ func IsCallImm(insn cs.Instruction) bool {
 	return false
 }
 
-// Any JMP or CALL to an immediate
+// IsJmpCallImm - bool, is it any JMP to or CALL of an immediate
 func IsJmpCallImm(insn cs.Instruction) bool {
 	if InGroup(insn, cs.X86_GRP_JUMP) || insn.Id == cs.X86_INS_CALL {
 		if insn.X86.Operands[0].Type == cs.X86_OP_IMM {

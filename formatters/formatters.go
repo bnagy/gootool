@@ -62,6 +62,9 @@ func dumpCstringRef(buf *bytes.Buffer, insn cs.Instruction) {
 
 }
 
+// DumpInsn dumps an instruction disassembly to the provided buffer. It will also:
+//  - Try to mark up symbols for any jmp or call to an immediate
+//  - Try to add cstrings as ; comments for insns that use static strings
 func DumpInsn(insn cs.Instruction, sdb *symlist.SymList, outbuf *bytes.Buffer) {
 
 	// Try to symbolically resolve any jmp/call with an immediate operand
@@ -94,7 +97,8 @@ func DumpInsn(insn cs.Instruction, sdb *symlist.SymList, outbuf *bytes.Buffer) {
 
 }
 
-func DumpBBL(bbl *cfg.BBL, sdb *symlist.SymList, buf *bytes.Buffer) {
+// DumpBBL dumps a BBL summary line to the provided buffer
+func DumpBBL(bbl *cfg.Node, sdb *symlist.SymList, buf *bytes.Buffer) {
 
 	// This is the part where I miss Ruby ;)
 
